@@ -1,0 +1,43 @@
+local Range = require 'tt.range'
+local vim_repeat = require 'tt.repeat'
+
+---@type fun(range: Range): nil|(fun():any)
+local MyOpKeymapOpFunc_rhs = nil
+
+--- This is the global utility function used for operatorfunc
+--- in opkeymap
+---@type nil|fun(range: Range): fun():any|nil
+---@param ty 'line'|'char'|'block'
+-- selene: allow(unused_variable)
+function MyOpKeymapOpFunc(ty)
+  if MyOpKeymapOpFunc_rhs ~= nil then
+    local range = Range.from_op_func(ty)
+    local repeat_inject = MyOpKeymapOpFunc_rhs(range)
+
+    vim_repeat.set(function()
+      vim.o.operatorfunc = 'v:lua.MyOpKeymapOpFunc'
+      if repeat_inject ~= nil and type(repeat_inject) == 'function' then repeat_inject() end
+      vim_repeat.native_repeat()
+    end)
+  end
+end
+
+--- Registers a function that operates on a text-object, triggered by the given prefix (lhs).
+--- It works in the following way:
+--- 1. An expression-map is set, so that whatever the callback returns is executed by Vim (in this case `g@`)
+---    g@: tells vim to way for a motion, and then call operatorfunc.
+--- 2. The operatorfunc is set to a lua function that computes the range being operated over, that
+---    then calls the original passed callback with said range.
+---@param mode string|string[]
+---@param lhs string
+---@param rhs fun(range: Range): nil|(fun():any) This function may return another function, which is called whenever the operator is repeated
+---@param opts? vim.keymap.set.Opts
+local function opkeymap(mode, lhs, rhs, opts)
+  vim.keymap.set(mode, lhs, function()
+    MyOpKeymapOpFunc_rhs = rhs
+    vim.o.operatorfunc = 'v:lua.MyOpKeymapOpFunc'
+    return 'g@'
+  end, vim.tbl_extend('force', opts or {}, { expr = true }))
+end
+
+return opkeymap
