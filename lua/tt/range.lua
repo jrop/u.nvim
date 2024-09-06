@@ -78,6 +78,10 @@ function Range.from_line(buf, line) return Range.from_lines(buf, line, line) end
 ---@param stop_line number 0-based line index
 function Range.from_lines(buf, start_line, stop_line)
   if buf == nil or buf == 0 then buf = vim.api.nvim_get_current_buf() end
+  if stop_line < 0 then
+    local num_lines = vim.api.nvim_buf_line_count(buf)
+    stop_line = num_lines + stop_line
+  end
   return Range.new(Pos.new(buf, start_line, 0), Pos.new(buf, stop_line, Pos.MAX_COL), 'V')
 end
 
@@ -237,7 +241,7 @@ function Range.smallest(ranges)
 end
 
 function Range:clone() return Range.new(self.start:clone(), self.stop:clone(), self.mode) end
-function Range:line_count() return self.stop.lnum + self.start.lnum + 1 end
+function Range:line_count() return self.stop.lnum - self.start.lnum + 1 end
 
 function Range:to_linewise()
   local r = self:clone()
@@ -369,7 +373,7 @@ end
 ---@param amount number
 function Range:must_shrink(amount)
   local shrunk = self:shrink(amount)
-  if shrunk == nil then error 'error in Range:must_shrink: Range:shrink() returned nil' end
+  if shrunk == nil or shrunk:is_empty() then error 'error in Range:must_shrink: Range:shrink() returned nil' end
   return shrunk
 end
 
@@ -397,12 +401,8 @@ function Range:set_visual_selection()
     self.start:save_to_mark 'a'
     self.stop:save_to_mark 'b'
     local mode = self.mode
-    if vim.api.nvim_get_mode().mode == 'n' then
-      vim.cmd.normal { cmd = 'normal', args = { '`a' .. mode .. '`b' }, bang = true }
-    else
-      utils.feedkeys '`ao`b'
-    end
-
+    if vim.api.nvim_get_mode().mode == 'n' then utils.feedkeys(mode) end
+    utils.feedkeys '`ao`b'
     return nil
   end)
 end

@@ -24,7 +24,7 @@ end
 
 ---@param p Pos
 function CodeWriter.from_pos(p)
-  local line = Buffer.new(p.buf):line0(p.lnum):text()
+  local line = Buffer.from_nr(p.buf):line0(p.lnum):text()
   return CodeWriter.from_line(line, p.buf)
 end
 
@@ -55,8 +55,6 @@ end
 ---@param line string
 function CodeWriter:write_raw(line)
   if line:find '\n' then error 'line contains newline character' end
-  line = line:gsub('^\n+', '')
-  line = line:gsub('\n+$', '')
   table.insert(self.lines, line)
 end
 

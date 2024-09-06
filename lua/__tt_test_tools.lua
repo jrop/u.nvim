@@ -1,4 +1,6 @@
 local function withbuf(lines, f)
+  vim.opt_global.swapfile = false
+
   vim.cmd.new()
   vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
   local ok, result = pcall(f)

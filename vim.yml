@@ -11,6 +11,18 @@ globals:
     args:
       - type: any
       - type: any
+  assert.has.error:
+    args:
+      - type: any
+      - type: any
+  assert.is_true:
+    args:
+      - type: any
+      - type: any
+  assert.is_false:
+    args:
+      - type: any
+      - type: any
   describe:
     args:
       - type: string

@@ -6,7 +6,7 @@ local Buffer = {}
 
 ---@param buf? number
 ---@return Buffer
-function Buffer.new(buf)
+function Buffer.from_nr(buf)
   if buf == nil or buf == 0 then buf = vim.api.nvim_get_current_buf() end
   local b = { buf = buf }
   setmetatable(b, { __index = Buffer })
@@ -14,12 +14,12 @@ function Buffer.new(buf)
 end
 
 ---@return Buffer
-function Buffer.current() return Buffer.new(0) end
+function Buffer.current() return Buffer.from_nr(0) end
 
 ---@param listed boolean
 ---@param scratch boolean
 ---@return Buffer
-function Buffer.create(listed, scratch) return Buffer.new(vim.api.nvim_create_buf(listed, scratch)) end
+function Buffer.create(listed, scratch) return Buffer.from_nr(vim.api.nvim_create_buf(listed, scratch)) end
 
 function Buffer:set_tmp_options()
   self:set_option('bufhidden', 'delete')
