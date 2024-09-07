@@ -31,11 +31,13 @@ end
 ---@param cmd string | fun(args: CmdArgs): any
 ---@param opts? { nargs?: 0|1|'*'|'?'|'+'; range?: boolean|'%'|number; count?: boolean|number, addr?: string; completion?: string }
 function M.ucmd(name, cmd, opts)
+  local Range = require 'tt.range'
+
   opts = opts or {}
   local cmd2 = cmd
   if type(cmd) == 'function' then
     cmd2 = function(args)
-      args.info = M.Range.from_cmd_args(args)
+      args.info = Range.from_cmd_args(args)
       return cmd(args)
     end
   end
@@ -89,6 +91,30 @@ function M.define_text_object(key_seq, fn, opts)
     end
   end
   vim.keymap.set({ 'o' }, key_seq, handle_normal, opts and { buffer = opts.buffer } or nil)
+end
+
+function M.get_editor_dimensions()
+  local w = 0
+  local h = 0
+  local tabnr = vim.api.nvim_get_current_tabpage()
+  for _, winid in ipairs(vim.api.nvim_list_wins()) do
+    local tabpage = vim.api.nvim_win_get_tabpage(winid)
+    if tabpage == tabnr then
+      local pos = vim.api.nvim_win_get_position(winid)
+      local r, c = pos[1], pos[2]
+      local win_w = vim.api.nvim_win_get_width(winid)
+      local win_h = vim.api.nvim_win_get_height(winid)
+      local right = c + win_w
+      local bottom = r + win_h
+      if right > w then w = right end
+      if bottom > h then h = bottom end
+    end
+  end
+  if w == 0 or h == 0 then
+    w = vim.api.nvim_win_get_width(0)
+    h = vim.api.nvim_win_get_height(0)
+  end
+  return { width = w, height = h }
 end
 
 return M
