@@ -86,12 +86,13 @@ function Range.from_lines(buf, start_line, stop_line)
 end
 
 ---@param text_obj string
----@param opts? { buf?: number; contains_cursor?: boolean; pos?: Pos }
+---@param opts? { buf?: number; contains_cursor?: boolean; pos?: Pos, user_defined?: boolean }
 ---@return Range|nil
 function Range.from_text_object(text_obj, opts)
   opts = opts or {}
   if opts.buf == nil then opts.buf = vim.api.nvim_get_current_buf() end
   if opts.contains_cursor == nil then opts.contains_cursor = false end
+  if opts.user_defined == nil then opts.user_defined = false end
 
   ---@type "a" | "i"
   local selection_type = text_obj:sub(1, 1)
@@ -118,7 +119,7 @@ function Range.from_text_object(text_obj, opts)
       -- For some reason,
       -- vim.cmd.normal { cmd = 'normal', args = { '""y' .. text_obj }, mods = { silent = true } }
       -- does not work in all cases. We resort to using feedkeys instead:
-      utils.feedkeys('""y' .. text_obj)
+      utils.feedkeys('""y' .. text_obj, opts.user_defined and 'mx' or 'nx') -- 'm' = remap, 'n' = noremap
 
       local start = Pos.from_pos "'["
       local stop = Pos.from_pos "']"
