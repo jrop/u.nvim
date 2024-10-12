@@ -1,12 +1,9 @@
 local M = {}
 
 local function _normal(cmd) vim.cmd.normal { cmd = 'normal', args = { cmd }, bang = true } end
-local function _feedkeys(keys, mode)
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), mode or 'nx', true)
-end
 
-M.native_repeat = function() _feedkeys '.' end
-M.native_undo = function() _feedkeys 'u' end
+M.native_repeat = function() _normal '.' end
+M.native_undo = function() _normal 'u' end
 
 ---@param cmd? string|fun():unknown
 function M.set(cmd)

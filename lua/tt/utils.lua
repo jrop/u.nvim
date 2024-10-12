@@ -6,13 +6,6 @@ local M = {}
 
 ---@alias QfItem { col: number, filename: string, kind: string, lnum: number, text: string }
 ---@alias KeyMaps table<string, fun(): any | string> }
-
----@param keys string
----@param mode? string
-function M.feedkeys(keys, mode)
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), mode or 'nx', true)
-end
-
 ---@alias CmdArgs { args: string; bang: boolean; count: number; fargs: string[]; line1: number; line2: number; mods: string; name: string; range: 0|1|2; reg: string; smods: any; info: Range|nil }
 
 --- A utility for creating user commands that also pre-computes useful information
@@ -61,7 +54,7 @@ function M.define_text_object(key_seq, fn, opts)
       local range = range_or_pos --[[@as Range]]
       range:set_visual_selection()
     else
-      M.feedkeys '<Esc>'
+      vim.cmd { cmd = 'normal', args = { '<Esc>' }, bang = true }
     end
   end
   vim.keymap.set({ 'x' }, key_seq, handle_visual, opts and { buffer = opts.buffer } or nil)
@@ -70,7 +63,7 @@ function M.define_text_object(key_seq, fn, opts)
     local State = require 'tt.state'
 
     -- enter visual mode:
-    M.feedkeys 'v'
+    vim.cmd { cmd = 'normal', args = { 'v' }, bang = true }
 
     local range_or_pos = fn(key_seq)
     if range_or_pos == nil then return end
