@@ -104,6 +104,7 @@ function Range.from_text_object(text_obj, opts)
   local positions
   vim.api.nvim_buf_call(opts.buf, function()
     positions = State.run(0, function(s)
+      s:track_winview()
       s:track_register '"'
       s:track_pos '.'
       s:track_pos "'["

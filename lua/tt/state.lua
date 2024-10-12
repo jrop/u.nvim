@@ -5,6 +5,7 @@
 ---@field positions table
 ---@field keymaps { mode: string; lhs: any, rhs: any, buffer?: number }[]
 ---@field global_options table<string, any>
+---@field win_view vim.fn.winsaveview.ret|nil
 local State = {}
 
 ---@param buf number
@@ -65,6 +66,8 @@ function State:track_pos(pos) self.positions[pos] = vim.fn.getpos(pos) end
 ---@param nm string
 function State:track_global_option(nm) self.global_options[nm] = vim.g[nm] end
 
+function State:track_winview() self.win_view = vim.fn.winsaveview() end
+
 function State:restore()
   for reg, val in pairs(self.registers) do
     vim.fn.setreg(reg, val)
@@ -81,6 +84,7 @@ function State:restore()
   for nm, val in pairs(self.global_options) do
     vim.g[nm] = val
   end
+  if self.win_view ~= nil then vim.fn.winrestview(self.win_view) end
 end
 
 return State
