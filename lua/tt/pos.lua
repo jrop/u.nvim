@@ -201,17 +201,8 @@ function Pos:find_match(max_chars, invocations)
   local is_closer = vim.tbl_contains(closers, c)
   if not is_opener and not is_closer then return nil end
 
-  ---@type number
-  local i
-  ---@type string
-  local c_match
-  if is_opener then
-    i, _ = vim.iter(openers):enumerate():find(function(_, c2) return c == c2 end)
-    c_match = closers[i]
-  else
-    i, _ = vim.iter(closers):enumerate():find(function(_, c2) return c == c2 end)
-    c_match = openers[i]
-  end
+  local i, _ = vim.iter(is_opener and openers or closers):enumerate():find(function(_, c2) return c == c2 end)
+  local c_match = (is_opener and closers or openers)[i]
 
   ---@type Pos|nil
   local cur = self
@@ -224,13 +215,7 @@ function Pos:find_match(max_chars, invocations)
       if max_chars < 0 then return nil end
     end
 
-    if is_opener then
-      -- scan forward
-      return cur:next()
-    else
-      -- scan backward
-      return cur:next(-1)
-    end
+    return cur:next(is_opener and 1 or -1)
   end
 
   -- scan until we find a match:

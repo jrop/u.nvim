@@ -116,10 +116,12 @@ function Range.from_text_object(text_obj, opts)
       null_pos:save_to_pos "'["
       null_pos:save_to_pos "']"
 
-      -- For some reason,
-      -- vim.cmd.normal { cmd = 'normal', args = { '""y' .. text_obj }, mods = { silent = true } }
-      -- does not work in all cases. We resort to using feedkeys instead:
-      utils.feedkeys('""y' .. text_obj, opts.user_defined and 'mx' or 'nx') -- 'm' = remap, 'n' = noremap
+      vim.cmd.normal {
+        cmd = 'normal',
+        bang = not opts.user_defined,
+        args = { '""y' .. text_obj },
+        mods = { silent = true },
+      }
 
       local start = Pos.from_pos "'["
       local stop = Pos.from_pos "']"
@@ -403,8 +405,12 @@ function Range:set_visual_selection()
     self.start:save_to_mark 'a'
     self.stop:save_to_mark 'b'
     local mode = self.mode
-    if vim.api.nvim_get_mode().mode == 'n' then utils.feedkeys(mode) end
-    utils.feedkeys '`ao`b'
+
+    local normal_cmd_args = ''
+    if vim.api.nvim_get_mode().mode == 'n' then normal_cmd_args = normal_cmd_args .. mode end
+    normal_cmd_args = normal_cmd_args .. '`ao`b'
+    vim.cmd { cmd = 'normal', args = { normal_cmd_args }, bang = true }
+
     return nil
   end)
 end
