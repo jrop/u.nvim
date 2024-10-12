@@ -435,7 +435,6 @@ function Range:highlight(group, opts)
   vim.cmd.redraw()
 
   local function clear()
-    vim.print 'clearing highlight...'
     vim.api.nvim_buf_clear_namespace(self.start.buf, ns, self.start.lnum, self.stop.lnum + 1)
   end
   if opts.timeout ~= nil then vim.defer_fn(clear, opts.timeout) end
