@@ -1,6 +1,5 @@
 local Pos = require 'tt.pos'
 local State = require 'tt.state'
-local utils = require 'tt.utils'
 
 ---@class Range
 ---@field start Pos
@@ -413,6 +412,35 @@ function Range:set_visual_selection()
 
     return nil
   end)
+end
+
+---@param group string
+---@param opts? { timeout?: number, priority?: number }
+function Range:highlight(group, opts)
+  opts = opts or {}
+
+  local ns = vim.api.nvim_create_namespace ''
+  vim.highlight.range(
+    self.start.buf,
+    ns,
+    group,
+    { self.start.lnum, self.start.col },
+    { self.stop.lnum, self.stop.col },
+    {
+      inclusive = true,
+      priority = opts.priority,
+      regtype = 'v',
+    }
+  )
+  vim.cmd.redraw()
+
+  local function clear()
+    vim.print 'clearing highlight...'
+    vim.api.nvim_buf_clear_namespace(self.start.buf, ns, self.start.lnum, self.stop.lnum + 1)
+  end
+  if opts.timeout ~= nil then vim.defer_fn(clear, opts.timeout) end
+
+  return { ns = ns, clear = clear }
 end
 
 return Range
