@@ -1,6 +1,13 @@
 local Pos = require 'tt.pos'
 local State = require 'tt.state'
 
+local orig_on_yank = vim.highlight.on_yank
+local on_yank_enabled = true;
+(vim.highlight --[[@as any]]).on_yank = function(opts)
+  if not on_yank_enabled then return end
+  return orig_on_yank(opts)
+end
+
 ---@class Range
 ---@field start Pos
 ---@field stop Pos
@@ -116,12 +123,15 @@ function Range.from_text_object(text_obj, opts)
       null_pos:save_to_pos "'["
       null_pos:save_to_pos "']"
 
+      local prev_on_yank_enabled = on_yank_enabled
+      on_yank_enabled = false
       vim.cmd.normal {
         cmd = 'normal',
         bang = not opts.user_defined,
         args = { '""y' .. text_obj },
         mods = { silent = true },
       }
+      on_yank_enabled = prev_on_yank_enabled
 
       local start = Pos.from_pos "'["
       local stop = Pos.from_pos "']"
@@ -416,27 +426,38 @@ function Range:set_visual_selection()
 end
 
 ---@param group string
----@param opts? { timeout?: number, priority?: number }
+---@param opts? { timeout?: number, priority?: number, on_macro?: boolean }
 function Range:highlight(group, opts)
-  opts = opts or {}
+  opts = opts or { on_macro = false }
+  if opts.on_macro == nil then opts.on_macro = false end
+
+  local in_macro = vim.fn.reg_executing() ~= ''
+  if not opts.on_macro and in_macro then return { clear = function() end } end
 
   local ns = vim.api.nvim_create_namespace ''
-  vim.highlight.range(
-    self.start.buf,
-    ns,
-    group,
-    { self.start.lnum, self.start.col },
-    { self.stop.lnum, self.stop.col },
-    {
-      inclusive = true,
-      priority = opts.priority,
-      regtype = 'v',
-    }
-  )
+  State.run(self.start.buf, function(s)
+    if not in_macro then s:track_winview() end
+
+    vim.highlight.range(
+      self.start.buf,
+      ns,
+      group,
+      { self.start.lnum, self.start.col },
+      { self.stop.lnum, self.stop.col },
+      {
+        inclusive = true,
+        priority = opts.priority,
+        regtype = self.mode,
+      }
+    )
+
+    return nil
+  end)
   vim.cmd.redraw()
 
   local function clear()
     vim.api.nvim_buf_clear_namespace(self.start.buf, ns, self.start.lnum, self.stop.lnum + 1)
+    vim.cmd.redraw()
   end
   if opts.timeout ~= nil then vim.defer_fn(clear, opts.timeout) end
 

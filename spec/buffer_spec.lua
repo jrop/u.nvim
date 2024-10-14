@@ -1,5 +1,5 @@
 local Buffer = require 'tt.buffer'
-local withbuf = require '__tt_test_tools'
+local withbuf = loadfile './spec/withbuf.lua'()
 
 describe('Buffer', function()
   it('should replace all lines', function()

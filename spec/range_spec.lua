@@ -1,6 +1,6 @@
 local Range = require 'tt.range'
 local Pos = require 'tt.pos'
-local withbuf = require '__tt_test_tools'
+local withbuf = loadfile './spec/withbuf.lua'()
 
 describe('Range', function()
   it('get text in buffer', function()

@@ -1,5 +1,5 @@
 local Pos = require 'tt.pos'
-local withbuf = require '__tt_test_tools'
+local withbuf = loadfile './spec/withbuf.lua'()
 
 describe('Pos', function()
   it('get a char from a given position', function()
