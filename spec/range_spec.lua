@@ -455,4 +455,20 @@ describe('Range', function()
       assert.are.same(Pos.from_pos '.', Pos.new(nil, 1, 11))
     end)
   end)
+
+  it('selections set to past the EOL should not error', function()
+    withbuf({ 'Rg SET NAMES' }, function()
+      local b = vim.api.nvim_get_current_buf()
+      local r = Range.new(Pos.new(b, 0, 3), Pos.new(b, 0, 12), 'v')
+      r:replace 'bleh'
+      assert.are.same({ 'Rg bleh' }, vim.api.nvim_buf_get_lines(b, 0, -1, false))
+    end)
+
+    withbuf({ 'Rg SET NAMES' }, function()
+      local b = vim.api.nvim_get_current_buf()
+      local r = Range.new(Pos.new(b, 0, 3), Pos.new(b, 0, 11), 'v')
+      r:replace 'bleh'
+      assert.are.same({ 'Rg bleh' }, vim.api.nvim_buf_get_lines(b, 0, -1, false))
+    end)
+  end)
 end)

@@ -9,7 +9,7 @@ fmt:
 	stylua .
 
 test: $(PLENARY_DIR)
-	nvim -u NORC --headless -c 'set packpath+=~/.local/share/nvim/site' -c 'packadd plenary.nvim' -c "PlenaryBustedDirectory spec/"
+	NVIM_APPNAME=noplugstest nvim -u NORC --headless -c 'set packpath+=~/.local/share/nvim/site' -c 'packadd plenary.nvim' -c "PlenaryBustedDirectory spec/"
 
 $(PLENARY_DIR):
 	git clone https://github.com/nvim-lua/plenary.nvim/ $(PLENARY_DIR)

@@ -352,7 +352,6 @@ function Range:replace(replacement)
       -- Fixup the bounds:
       local last_line = vim.api.nvim_buf_get_lines(self.stop.buf, self.stop.lnum, self.stop.lnum + 1, false)[1] or ''
       local max_col = #last_line
-      if last_line ~= '' then max_col = max_col + 1 end
 
       vim.api.nvim_buf_set_text(
         self.start.buf,
