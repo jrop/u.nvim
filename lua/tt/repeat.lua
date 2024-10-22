@@ -12,6 +12,11 @@ function M.set(cmd)
   if cmd ~= nil then vim.b.tt_repeatcmd = cmd end
 end
 
+local function tt_was_last_repeatable()
+  local ts, tt_ts, tt_cmd = vim.b.changedtick, vim.b.tt_changedtick, vim.b.tt_repeatcmd
+  return tt_ts ~= nil and ts <= tt_ts
+end
+
 ---@generic T
 ---@param cmd string|fun():T
 ---@return T
@@ -24,14 +29,7 @@ end
 
 function M.do_repeat()
   local ts, tt_ts, tt_cmd = vim.b.changedtick, vim.b.tt_changedtick, vim.b.tt_repeatcmd
-  if
-    -- (force formatter break)
-    tt_ts == nil
-    or tt_cmd == nil
-    -- has the buffer been modified after we last modified it?
-    or ts > tt_ts
-    or (type(tt_cmd) ~= 'function' and type(tt_cmd) ~= 'string')
-  then
+  if not tt_was_last_repeatable() or (type(tt_cmd) ~= 'function' and type(tt_cmd) ~= 'string') then
     return M.native_repeat()
   end
 
@@ -49,10 +47,13 @@ function M.do_repeat()
 end
 
 function M.undo()
+  local tt_was_last_repeatable_before_undo = tt_was_last_repeatable()
   M.native_undo()
-  -- Update the current TS on the next event tick,
-  -- to make sure we get the latest
-  vim.schedule(M.set)
+  if tt_was_last_repeatable_before_undo then
+    -- Update the current TS on the next event tick,
+    -- to make sure we get the latest
+    M.set()
+  end
 end
 
 function M.setup()
