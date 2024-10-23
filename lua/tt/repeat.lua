@@ -5,15 +5,16 @@ local function _normal(cmd) vim.cmd.normal { cmd = 'normal', args = { cmd }, ban
 M.native_repeat = function() _normal '.' end
 M.native_undo = function() _normal 'u' end
 
+local function update_ts() vim.b.tt_changedtick = vim.b.changedtick end
+
 ---@param cmd? string|fun():unknown
 function M.set(cmd)
-  local ts = vim.b.changedtick
-  vim.b.tt_changedtick = ts
+  update_ts()
   if cmd ~= nil then vim.b.tt_repeatcmd = cmd end
 end
 
 local function tt_was_last_repeatable()
-  local ts, tt_ts, tt_cmd = vim.b.changedtick, vim.b.tt_changedtick, vim.b.tt_repeatcmd
+  local ts, tt_ts = vim.b.changedtick, vim.b.tt_changedtick
   return tt_ts ~= nil and ts <= tt_ts
 end
 
@@ -23,12 +24,12 @@ end
 function M.run(cmd)
   M.set(cmd)
   local result = cmd()
-  M.set()
+  update_ts()
   return result
 end
 
 function M.do_repeat()
-  local ts, tt_ts, tt_cmd = vim.b.changedtick, vim.b.tt_changedtick, vim.b.tt_repeatcmd
+  local tt_cmd = vim.b.tt_repeatcmd
   if not tt_was_last_repeatable() or (type(tt_cmd) ~= 'function' and type(tt_cmd) ~= 'string') then
     return M.native_repeat()
   end
@@ -49,11 +50,7 @@ end
 function M.undo()
   local tt_was_last_repeatable_before_undo = tt_was_last_repeatable()
   M.native_undo()
-  if tt_was_last_repeatable_before_undo then
-    -- Update the current TS on the next event tick,
-    -- to make sure we get the latest
-    M.set()
-  end
+  if tt_was_last_repeatable_before_undo then update_ts() end
 end
 
 function M.setup()
