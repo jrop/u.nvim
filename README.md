@@ -1,8 +1,8 @@
-# Text Tools (TT)
+# u.nvim
 
-Welcome to **Text Tools (TT)** – a powerful Lua library designed to enhance your text manipulation experience in NeoVim, focusing primarily on a context-aware "Range" utility. This utility allows you to work efficiently with text selections based on various conditions, in a variety of contexts, making coding and editing more intuitive and productive.
+Welcome to **u.nvim** – a powerful Lua library designed to enhance your text manipulation experience in NeoVim, focusing primarily on a context-aware "Range" utility. This utility allows you to work efficiently with text selections based on various conditions, in a variety of contexts, making coding and editing more intuitive and productive.
 
-This is meant to be used as a **library**, not a plugin. On its own, `text-tools.nvim` does nothing on its own. It is meant to be used by plugin authors, to make their lives easier based on the variety of utilities I found I needed while growing my NeoVim config.
+This is meant to be used as a **library**, not a plugin. On its own, `u.nvim` does nothing on its own. It is meant to be used by plugin authors, to make their lives easier based on the variety of utilities I found I needed while growing my NeoVim config.
 
 ## Features
 
@@ -16,8 +16,8 @@ This is meant to be used as a **library**, not a plugin. On its own, `text-tools
 Lazy:
 ```lua
 -- Setting `lazy = true` ensures that the library is only loaded
--- when `require 'tt.<utility>' is called.
-{ 'jrop/text-tools.nvim', lazy = true }
+-- when `require 'u.<utility>' is called.
+{ 'jrop/u.nvim', lazy = true }
 ```
 
 ## Usage
@@ -31,7 +31,7 @@ I love NeoVim. I am coming to love Lua. I don't like 1-based indices; perhaps I 
 The `Range` utility is the main feature upon which most other things in this library are built, aside from a few standalone utilities. Ranges can be constructed manually, or preferably, obtained based on a variety of contexts.
 
 ```lua
-local Range = require 'tt.range'
+local Range = require 'u.range'
 local start = Pos.new(0, 0, 0) -- Line 1, first column
 local stop = Pos.new(0, 2, 0) -- Line 3, first column
 
@@ -109,7 +109,7 @@ range:replace(nil)
 Define custom (dot-repeatable) key mappings for text objects:
 
 ```lua
-local opkeymap = require 'tt.opkeymap'
+local opkeymap = require 'u.opkeymap'
 
 -- invoke this function by typing, for example, `<leader>riw`:
 -- `range` will contain the bounds of the motion `iw`.
@@ -123,7 +123,7 @@ end)
 To write code with indentation, use the `CodeWriter` class:
 
 ```lua
-local CodeWriter = require 'tt.codewriter'
+local CodeWriter = require 'u.codewriter'
 local cw = CodeWriter.new()
 cw:write('{')
 cw:indent(function(innerCW)
@@ -139,8 +139,8 @@ cw:write('}')
 Simply by returning a `Range` or a `Pos`, you can easily and quickly define your own text objects:
 
 ```lua
-local utils = require 'tt.utils'
-local Range = require 'tt.range'
+local utils = require 'u.utils'
+local Range = require 'u.range'
 
 -- Select whole file:
 utils.define_text_object('ag', function()
@@ -153,7 +153,7 @@ end)
 Access and manipulate buffers easily:
 
 ```lua
-local Buffer = require 'tt.buffer'
+local Buffer = require 'u.buffer'
 local buf = Buffer.current()
 buf:line_count() -- the number of lines in the current buffer
 buf:get_option '...'

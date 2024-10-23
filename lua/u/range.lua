@@ -1,5 +1,5 @@
-local Pos = require 'tt.pos'
-local State = require 'tt.state'
+local Pos = require 'u.pos'
+local State = require 'u.state'
 
 local orig_on_yank = vim.highlight.on_yank
 local on_yank_enabled = true;

@@ -1,4 +1,4 @@
-local Pos = require 'tt.pos'
+local Pos = require 'u.pos'
 local withbuf = loadfile './spec/withbuf.lua'()
 
 describe('Pos', function()

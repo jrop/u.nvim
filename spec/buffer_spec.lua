@@ -1,4 +1,4 @@
-local Buffer = require 'tt.buffer'
+local Buffer = require 'u.buffer'
 local withbuf = loadfile './spec/withbuf.lua'()
 
 describe('Buffer', function()

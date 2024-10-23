@@ -1,4 +1,4 @@
-local Range = require 'tt.range'
+local Range = require 'u.range'
 
 ---@class Buffer
 ---@field buf number

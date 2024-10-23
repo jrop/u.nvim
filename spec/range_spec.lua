@@ -1,5 +1,5 @@
-local Range = require 'tt.range'
-local Pos = require 'tt.pos'
+local Range = require 'u.range'
+local Pos = require 'u.pos'
 local withbuf = loadfile './spec/withbuf.lua'()
 
 describe('Range', function()

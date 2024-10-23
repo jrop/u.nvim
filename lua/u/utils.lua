@@ -24,7 +24,7 @@ local M = {}
 ---@param cmd string | fun(args: CmdArgs): any
 ---@param opts? { nargs?: 0|1|'*'|'?'|'+'; range?: boolean|'%'|number; count?: boolean|number, addr?: string; completion?: string }
 function M.ucmd(name, cmd, opts)
-  local Range = require 'tt.range'
+  local Range = require 'u.range'
 
   opts = opts or {}
   local cmd2 = cmd
@@ -41,8 +41,8 @@ end
 ---@param fn fun(key_seq: string):Range|Pos|nil
 ---@param opts? { buffer: number|nil }
 function M.define_text_object(key_seq, fn, opts)
-  local Range = require 'tt.range'
-  local Pos = require 'tt.pos'
+  local Range = require 'u.range'
+  local Pos = require 'u.pos'
 
   if opts ~= nil and opts.buffer == 0 then opts.buffer = vim.api.nvim_get_current_buf() end
 
@@ -60,7 +60,7 @@ function M.define_text_object(key_seq, fn, opts)
   vim.keymap.set({ 'x' }, key_seq, handle_visual, opts and { buffer = opts.buffer } or nil)
 
   local function handle_normal()
-    local State = require 'tt.state'
+    local State = require 'u.state'
 
     -- enter visual mode:
     vim.cmd { cmd = 'normal', args = { 'v' }, bang = true }
@@ -84,6 +84,25 @@ function M.define_text_object(key_seq, fn, opts)
     end
   end
   vim.keymap.set({ 'o' }, key_seq, handle_normal, opts and { buffer = opts.buffer } or nil)
+end
+
+---@type fun(): nil|(fun():any)
+local __U__RepeatableOpFunc_rhs = nil
+
+--- This is the global utility function used for operatorfunc
+--- in repeatablemap
+---@type nil|fun(range: Range): fun():any|nil
+-- selene: allow(unused_variable)
+function __U__RepeatableOpFunc()
+  if __U__RepeatableOpFunc_rhs ~= nil then __U__RepeatableOpFunc_rhs() end
+end
+
+function M.repeatablemap(mode, lhs, rhs, opts)
+  vim.keymap.set(mode, lhs, function()
+    __U__RepeatableOpFunc_rhs = rhs
+    vim.o.operatorfunc = 'v:lua.__U__RepeatableOpFunc'
+    return 'g@ '
+  end, vim.tbl_extend('force', opts or {}, { expr = true }))
 end
 
 function M.get_editor_dimensions()

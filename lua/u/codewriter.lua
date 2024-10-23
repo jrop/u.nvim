@@ -1,4 +1,4 @@
-local Buffer = require 'tt.buffer'
+local Buffer = require 'u.buffer'
 
 ---@class CodeWriter
 ---@field lines string[]

@@ -1,4 +1,4 @@
-local CodeWriter = require 'tt.codewriter'
+local CodeWriter = require 'u.codewriter'
 
 describe('CodeWriter', function()
   it('should write with indentation', function()

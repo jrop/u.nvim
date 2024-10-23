@@ -1,21 +1,21 @@
-local Range = require 'tt.range'
-local vim_repeat = require 'tt.repeat'
+local Range = require 'u.range'
+local vim_repeat = require 'u.repeat'
 
 ---@type fun(range: Range): nil|(fun():any)
-local __TT__OpKeymapOpFunc_rhs = nil
+local __U__OpKeymapOpFunc_rhs = nil
 
 --- This is the global utility function used for operatorfunc
 --- in opkeymap
 ---@type nil|fun(range: Range): fun():any|nil
 ---@param ty 'line'|'char'|'block'
 -- selene: allow(unused_variable)
-function __TT__OpKeymapOpFunc(ty)
-  if __TT__OpKeymapOpFunc_rhs ~= nil then
+function __U__OpKeymapOpFunc(ty)
+  if __U__OpKeymapOpFunc_rhs ~= nil then
     local range = Range.from_op_func(ty)
-    local repeat_inject = __TT__OpKeymapOpFunc_rhs(range)
+    local repeat_inject = __U__OpKeymapOpFunc_rhs(range)
 
     vim_repeat.set(function()
-      vim.o.operatorfunc = 'v:lua.__TT__OpKeymapOpFunc'
+      vim.o.operatorfunc = 'v:lua.__U__OpKeymapOpFunc'
       if repeat_inject ~= nil and type(repeat_inject) == 'function' then repeat_inject() end
       vim_repeat.native_repeat()
     end)
@@ -34,8 +34,8 @@ end
 ---@param opts? vim.keymap.set.Opts
 local function opkeymap(mode, lhs, rhs, opts)
   vim.keymap.set(mode, lhs, function()
-    __TT__OpKeymapOpFunc_rhs = rhs
-    vim.o.operatorfunc = 'v:lua.__TT__OpKeymapOpFunc'
+    __U__OpKeymapOpFunc_rhs = rhs
+    vim.o.operatorfunc = 'v:lua.__U__OpKeymapOpFunc'
     return 'g@'
   end, vim.tbl_extend('force', opts or {}, { expr = true }))
 end
