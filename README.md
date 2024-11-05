@@ -2,7 +2,7 @@
 
 Welcome to **u.nvim** – a powerful Lua library designed to enhance your text manipulation experience in NeoVim, focusing primarily on a context-aware "Range" utility. This utility allows you to work efficiently with text selections based on various conditions, in a variety of contexts, making coding and editing more intuitive and productive.
 
-This is meant to be used as a **library**, not a plugin. On its own, `u.nvim` does nothing on its own. It is meant to be used by plugin authors, to make their lives easier based on the variety of utilities I found I needed while growing my NeoVim config.
+This is meant to be used as a **library**, not a plugin. On its own, `u.nvim` does nothing. It is meant to be used by plugin authors, to make their lives easier based on the variety of utilities I found I needed while growing my NeoVim config.
 
 ## Features
 
@@ -13,11 +13,11 @@ This is meant to be used as a **library**, not a plugin. On its own, `u.nvim` do
 
 ### Installation
 
-Lazy:
+lazy.nvim:
 ```lua
 -- Setting `lazy = true` ensures that the library is only loaded
 -- when `require 'u.<utility>' is called.
-{ 'jrop/u.nvim', lazy = true }
+{ 'https://codeberg.org/jrop/u.nvim', lazy = true }
 ```
 
 ## Usage
