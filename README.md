@@ -17,7 +17,7 @@ lazy.nvim:
 ```lua
 -- Setting `lazy = true` ensures that the library is only loaded
 -- when `require 'u.<utility>' is called.
-{ 'https://codeberg.org/jrop/u.nvim', lazy = true }
+{ 'jrop/u.nvim', lazy = true }
 ```
 
 ## Usage
