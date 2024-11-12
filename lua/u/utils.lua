@@ -49,6 +49,7 @@ function M.define_text_object(key_seq, fn, opts)
   local function handle_visual()
     local range_or_pos = fn(key_seq)
     if range_or_pos == nil then return end
+    if Range.is(range_or_pos) and range_or_pos:is_empty() then range_or_pos = range_or_pos.start end
 
     if Range.is(range_or_pos) then
       local range = range_or_pos --[[@as Range]]
@@ -67,6 +68,7 @@ function M.define_text_object(key_seq, fn, opts)
 
     local range_or_pos = fn(key_seq)
     if range_or_pos == nil then return end
+    if Range.is(range_or_pos) and range_or_pos:is_empty() then range_or_pos = range_or_pos.start end
 
     if Range.is(range_or_pos) then
       range_or_pos:set_visual_selection()

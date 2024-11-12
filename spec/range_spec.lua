@@ -391,7 +391,7 @@ describe('Range', function()
 
   it('is_empty', function()
     withbuf({ 'line one', 'and line two' }, function()
-      local range = Range.new(Pos.new(nil, 0, 0), Pos.new(nil, 0, 0), 'v')
+      local range = Range.new(Pos.new(nil, 0, 0), nil, 'v')
       assert.is_true(range:is_empty())
 
       local range2 = Range.new(Pos.new(nil, 0, 0), Pos.new(nil, 0, 1), 'v')
@@ -469,6 +469,92 @@ describe('Range', function()
       local r = Range.new(Pos.new(b, 0, 3), Pos.new(b, 0, 11), 'v')
       r:replace 'bleh'
       assert.are.same({ 'Rg bleh' }, vim.api.nvim_buf_get_lines(b, 0, -1, false))
+    end)
+  end)
+
+  it('replace updates Range.stop: same line', function()
+    withbuf({ 'The quick brown fox jumps over the lazy dog' }, function()
+      local b = vim.api.nvim_get_current_buf()
+      local r = Range.new(Pos.new(b, 0, 4), Pos.new(b, 0, 8), 'v')
+
+      r:replace 'bleh1'
+      assert.are.same({ 'The bleh1 brown fox jumps over the lazy dog' }, vim.api.nvim_buf_get_lines(b, 0, -1, false))
+
+      r:replace 'bleh2'
+      assert.are.same({ 'The bleh2 brown fox jumps over the lazy dog' }, vim.api.nvim_buf_get_lines(b, 0, -1, false))
+    end)
+  end)
+
+  it('replace updates Range.stop: multi-line', function()
+    withbuf({
+      'The quick brown fox jumps',
+      'over the lazy dog',
+    }, function()
+      local b = vim.api.nvim_get_current_buf()
+      local r = Range.new(Pos.new(b, 0, 20), Pos.new(b, 1, 3), 'v')
+      assert.are.same({ 'jumps', 'over' }, r:lines())
+
+      r:replace 'bleh1'
+      assert.are.same({ 'The quick brown fox bleh1 the lazy dog' }, vim.api.nvim_buf_get_lines(b, 0, -1, false))
+
+      r:replace 'blehGoo2'
+      assert.are.same({ 'The quick brown fox blehGoo2 the lazy dog' }, vim.api.nvim_buf_get_lines(b, 0, -1, false))
+    end)
+  end)
+
+  it('replace updates Range.stop: multi-line (blockwise)', function()
+    withbuf({
+      'The quick brown',
+      'fox',
+      'jumps',
+      'over',
+      'the lazy dog',
+    }, function()
+      local b = vim.api.nvim_get_current_buf()
+      local r = Range.new(Pos.new(b, 1, 0), Pos.new(b, 3, Pos.MAX_COL), 'V')
+      assert.are.same({ 'fox', 'jumps', 'over' }, r:lines())
+
+      r:replace { 'bleh1', 'bleh2' }
+      assert.are.same({
+        'The quick brown',
+        'bleh1',
+        'bleh2',
+        'the lazy dog',
+      }, vim.api.nvim_buf_get_lines(b, 0, -1, false))
+
+      r:replace 'blehGoo2'
+      assert.are.same({
+        'The quick brown',
+        'blehGoo2',
+        'the lazy dog',
+      }, vim.api.nvim_buf_get_lines(b, 0, -1, false))
+    end)
+  end)
+
+  it('replace after delete', function()
+    withbuf({
+      'The quick brown',
+      'fox',
+      'jumps',
+      'over',
+      'the lazy dog',
+    }, function()
+      local b = vim.api.nvim_get_current_buf()
+      local r = Range.new(Pos.new(b, 1, 0), Pos.new(b, 3, Pos.MAX_COL), 'V')
+      assert.are.same({ 'fox', 'jumps', 'over' }, r:lines())
+
+      r:replace(nil)
+      assert.are.same({
+        'The quick brown',
+        'the lazy dog',
+      }, vim.api.nvim_buf_get_lines(b, 0, -1, false))
+
+      r:replace { 'blehGoo2', '' }
+      assert.are.same({
+        'The quick brown',
+        'blehGoo2',
+        'the lazy dog',
+      }, vim.api.nvim_buf_get_lines(b, 0, -1, false))
     end)
   end)
 end)

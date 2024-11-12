@@ -10,16 +10,16 @@ end
 
 ---@class Range
 ---@field start Pos
----@field stop Pos
+---@field stop Pos|nil
 ---@field mode 'v'|'V'
 local Range = {}
 
 ---@param start Pos
----@param stop Pos
+---@param stop Pos|nil
 ---@param mode? 'v'|'V'
 ---@return Range
 function Range.new(start, stop, mode)
-  if stop < start then
+  if stop ~= nil and stop < start then
     start, stop = stop, start
   end
 
@@ -27,7 +27,9 @@ function Range.new(start, stop, mode)
   local function str()
     ---@param p Pos
     local function posstr(p)
-      if p.off ~= 0 then
+      if p == nil then
+        return 'nil'
+      elseif p.off ~= 0 then
         return string.format('Pos(%d:%d){off=%d}', p.lnum, p.col, p.off)
       else
         return string.format('Pos(%d:%d)', p.lnum, p.col)
@@ -254,22 +256,27 @@ function Range.smallest(ranges)
   return result
 end
 
-function Range:clone() return Range.new(self.start:clone(), self.stop:clone(), self.mode) end
-function Range:line_count() return self.stop.lnum - self.start.lnum + 1 end
+function Range:clone() return Range.new(self.start:clone(), self.stop ~= nil and self.stop:clone() or nil, self.mode) end
+function Range:line_count()
+  if self:is_empty() then return 0 end
+  return self.stop.lnum - self.start.lnum + 1
+end
 
 function Range:to_linewise()
   local r = self:clone()
 
   r.mode = 'V'
   r.start.col = 0
-  r.stop.col = Pos.MAX_COL
+  if r.stop ~= nil then r.stop.col = Pos.MAX_COL end
 
   return r
 end
 
-function Range:is_empty() return self.start == self.stop end
+function Range:is_empty() return self.stop == nil end
 
 function Range:trim_start()
+  if self:is_empty() then return end
+
   local r = self:clone()
   while r.start:char():match '%s' do
     local next = r.start:next(1)
@@ -280,6 +287,8 @@ function Range:trim_start()
 end
 
 function Range:trim_stop()
+  if self:is_empty() then return end
+
   local r = self:clone()
   while r.stop:char():match '%s' do
     local next = r.stop:next(-1)
@@ -290,10 +299,12 @@ function Range:trim_stop()
 end
 
 ---@param p Pos
-function Range:contains(p) return p >= self.start and p <= self.stop end
+function Range:contains(p) return not self:is_empty() and p >= self.start and p <= self.stop end
 
 ---@return string[]
 function Range:lines()
+  if self:is_empty() then return {} end
+
   local lines = {}
   for i = 0, self.stop.lnum - self.start.lnum do
     local line = self:line0(i)
@@ -313,6 +324,8 @@ function Range:sub(i, j) return self:text():sub(i, j) end
 ---@return { line: string; idx0: { start: number; stop: number; }; lnum: number; range: fun():Range; text: fun():string }|nil
 function Range:line0(l)
   if l < 0 then return self:line0(self:line_count() + l) end
+  if l > self:line_count() then return end
+
   local line = vim.api.nvim_buf_get_lines(self.start.buf, self.start.lnum + l, self.start.lnum + l + 1, false)[1]
   if line == nil then return end
 
@@ -340,30 +353,57 @@ end
 
 ---@param replacement nil|string|string[]
 function Range:replace(replacement)
+  if replacement == nil then replacement = {} end
   if type(replacement) == 'string' then replacement = vim.fn.split(replacement, '\n') end
 
-  if replacement == nil and self.mode == 'V' then
-    -- delete the lines:
-    vim.api.nvim_buf_set_lines(self.start.buf, self.start.lnum, self.stop.lnum + 1, false, {})
-  else
-    if replacement == nil then replacement = { '' } end
+  local buf = self.start.buf
+  -- convert to start-inclusive, stop-exclusive coordinates:
+  local start_lnum, stop_lnum = self.start.lnum, (self.stop and self.stop.lnum or self.start.lnum) + 1
+  local start_col, stop_col = self.start.col, (self.stop and self.stop.col or self.start.col) + 1
 
-    if self.mode == 'v' then
-      -- Fixup the bounds:
-      local last_line = vim.api.nvim_buf_get_lines(self.stop.buf, self.stop.lnum, self.stop.lnum + 1, false)[1] or ''
-      local max_col = #last_line
+  local replace_type = (self:is_empty() and 'insert') or (self.mode == 'v' and 'region') or 'lines'
 
-      vim.api.nvim_buf_set_text(
-        self.start.buf,
-        self.start.lnum,
-        self.start.col,
-        self.stop.lnum,
-        math.min(self.stop.col + 1, max_col),
-        replacement
-      )
+  ---@param alnum number
+  ---@param acol number
+  ---@param blnum number
+  ---@param bcol number
+  local function set_text(alnum, acol, blnum, bcol, repl)
+    -- row indices are end-inclusive, and column indices are end-exclusive.
+    vim.api.nvim_buf_set_text(buf, alnum, acol, blnum, bcol, repl)
+
+    local new_last_line_num = self.start.lnum + #replacement - 1
+    local new_last_col = #(replacement[#replacement] or '')
+    if new_last_line_num == start_lnum then new_last_col = new_last_col + start_col - 1 end
+
+    self.stop = Pos.new(buf, new_last_line_num, new_last_col)
+  end
+
+  ---@param alnum number
+  ---@param blnum number
+  local function set_lines(alnum, blnum, repl)
+    -- indexing is zero-based, end-exclusive
+    vim.api.nvim_buf_set_lines(buf, alnum, blnum, false, repl)
+
+    if #repl == 0 then
+      self.stop = nil
     else
-      vim.api.nvim_buf_set_lines(self.start.buf, self.start.lnum, self.stop.lnum + 1, false, replacement)
+      local new_last_line_num = start_lnum + #replacement - 1
+      self.stop = Pos.new(self.start.buf, new_last_line_num, Pos.MAX_COL, self.stop.off)
     end
+    self.mode = 'v'
+  end
+
+  if replace_type == 'insert' then
+    set_text(start_lnum, start_col, start_lnum, start_col, replacement)
+  elseif replace_type == 'region' then
+    -- Fixup the bounds:
+    local last_line = vim.api.nvim_buf_get_lines(buf, stop_lnum - 1, stop_lnum, false)[1] or ''
+    local max_col = #last_line
+    set_text(start_lnum, start_col, stop_lnum - 1, math.min(stop_col, max_col), replacement)
+  elseif replace_type == 'lines' then
+    set_lines(start_lnum, stop_lnum, replacement)
+  else
+    error 'unreachable'
   end
 end
 
@@ -371,6 +411,8 @@ end
 function Range:shrink(amount)
   local start = self.start
   local stop = self.stop
+  if stop == nil then return self:clone() end
+
   for _ = 1, amount do
     local next_start = start:next(1)
     local next_stop = stop:next(-1)
@@ -379,7 +421,7 @@ function Range:shrink(amount)
     stop = next_stop
     if next_start > next_stop then break end
   end
-  if start > stop then stop = start end
+  if start > stop then stop = nil end
   return Range.new(start, stop, self.mode)
 end
 
@@ -393,18 +435,30 @@ end
 ---@param left string
 ---@param right string
 function Range:save_to_pos(left, right)
-  self.start:save_to_pos(left)
-  self.stop:save_to_pos(right)
+  if self:is_empty() then
+    self.start:save_to_pos(left)
+    self.start:save_to_pos(right)
+  else
+    self.start:save_to_pos(left)
+    self.stop:save_to_pos(right)
+  end
 end
 
 ---@param left string
 ---@param right string
 function Range:save_to_marks(left, right)
-  self.start:save_to_mark(left)
-  self.stop:save_to_mark(right)
+  if self:is_empty() then
+    self.start:save_to_mark(left)
+    self.start:save_to_mark(right)
+  else
+    self.start:save_to_mark(left)
+    self.stop:save_to_mark(right)
+  end
 end
 
 function Range:set_visual_selection()
+  if self:is_empty() then return end
+
   if vim.api.nvim_get_current_buf() ~= self.start.buf then vim.api.nvim_set_current_buf(self.start.buf) end
 
   State.run(self.start.buf, function(s)
@@ -427,6 +481,8 @@ end
 ---@param group string
 ---@param opts? { timeout?: number, priority?: number, on_macro?: boolean }
 function Range:highlight(group, opts)
+  if self:is_empty() then return end
+
   opts = opts or { on_macro = false }
   if opts.on_macro == nil then opts.on_macro = false end
 
