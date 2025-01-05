@@ -108,14 +108,24 @@ function M.setup()
     if from_cn < 32 or from_cn > 126 then return end
     local from_c = vim.fn.nr2char(from_cn)
     local from = surrounds[from_c] or { left = from_c, right = from_c }
+    local function get_fresh_arange()
+      local arange = Range.from_text_object('a' .. from_c, { user_defined = true })
+      if arange == nil then return nil end
+      if from_c == 'q' then
+        from.left = arange.start:char()
+        from.right = arange.stop:char()
+      end
+      return arange
+    end
 
-    local arange = Range.from_text_object('a' .. from_c, { user_defined = true })
+    local arange = get_fresh_arange()
     if arange == nil then return nil end
+
     local hl_info1 = Range.new(arange.start, arange.start, 'v'):highlight('IncSearch', { priority = 999 })
     local hl_info2 = Range.new(arange.stop, arange.stop, 'v'):highlight('IncSearch', { priority = 999 })
     local hl_clear = function()
-      hl_info1.clear()
-      hl_info2.clear()
+      if hl_info1 then hl_info1.clear() end
+      if hl_info2 then hl_info2.clear() end
     end
 
     local to = prompt_for_bounds()
@@ -123,6 +133,10 @@ function M.setup()
     if to == nil then return end
 
     vim_repeat.run(function()
+      -- Re-fetch the arange, just in case this action is being repeated:
+      arange = get_fresh_arange()
+      if arange == nil then return nil end
+
       if from_c == 't' then
         -- For tags, we want to replace the inner text, not the tag:
         local irange = Range.from_text_object('i' .. from_c, { user_defined = true })
@@ -219,11 +233,11 @@ function M.setup()
       bounds = _G.my_surround_bounds
     else
       local prompted_bounds = prompt_for_bounds()
-      if prompted_bounds == nil then return hl_info.clear() end
-      bounds = prompted_bounds
+      if prompted_bounds == nil and hl_info then return hl_info.clear() end
+      if prompted_bounds then bounds = prompted_bounds end
     end
 
-    hl_info.clear()
+    if hl_info then hl_info.clear() end
     do_surround(range, bounds)
     -- selene: allow(global_usage)
     _G.my_surround_bounds = nil
