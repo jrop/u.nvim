@@ -1,16 +1,21 @@
 local Range = require 'u.range'
+local Renderer = require 'u.renderer'
 
 ---@class Buffer
 ---@field buf number
+---@field private renderer Renderer
 local Buffer = {}
 
 ---@param buf? number
 ---@return Buffer
 function Buffer.from_nr(buf)
   if buf == nil or buf == 0 then buf = vim.api.nvim_get_current_buf() end
-  local b = { buf = buf }
-  setmetatable(b, { __index = Buffer })
-  return b
+
+  local renderer = Renderer.new(buf)
+  return setmetatable({
+    buf = buf,
+    renderer = renderer,
+  }, { __index = Buffer })
 end
 
 ---@return Buffer
@@ -68,5 +73,14 @@ function Buffer:text_object(txt_obj, opts)
   opts = vim.tbl_extend('force', opts or {}, { buf = self.buf })
   return Range.from_text_object(txt_obj, opts)
 end
+
+--- @param event string|string[]
+--- @param opts vim.api.keyset.create_autocmd
+function Buffer:autocmd(event, opts)
+  vim.api.nvim_create_autocmd(event, vim.tbl_extend('force', opts, { buffer = self.buf }))
+end
+
+--- @param markup string
+function Buffer:render(markup) return self.renderer:render(markup) end
 
 return Buffer
