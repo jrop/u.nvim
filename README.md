@@ -6,6 +6,8 @@ This is meant to be used as a **library**, not a plugin. On its own, `u.nvim` do
 
 ## Features
 
+- **Rendering System**: a utility that can declaratively render NeoVim-specific hyperscript into a buffer, supporting creating/managing extmarks, highlights, and key-event handling (requires NeoVim >0.11)
+- **Signals**: a simple dependency tracking system that pairs well with the rendering utilities for creating reactive/interactive UIs in NeoVim.
 - **Range Utility**: Get context-aware selections with ease. Replace regions with new text. Think of it as a programmatic way to work with visual selections (or regions of text).
 - **Code Writer**: Write code with automatic indentation and formatting.
 - **Operator Key Mapping**: Flexible key mapping that works with the selected text.
@@ -20,7 +22,198 @@ lazy.nvim:
 { 'jrop/u.nvim', lazy = true }
 ```
 
-## Usage
+## Signal and Rendering Usage
+
+### Overview
+
+The Signal and Rendering mechanisms are two subsystems of u.nvim, that, while
+simplistic, [compose](./examples/counter.lua) [together](./examples/filetree.lua)
+[powerfully](./examples/picker.lua) to create a system for interactive and
+responsive user interfaces. Here is a quick example that show-cases how easy it
+is to dive in to make any buffer an interactive UI:
+
+<details>
+<summary>Example Code: counter.lua</summary>
+
+```lua
+local tracker = require 'u.tracker'
+local Buffer = require 'u.buffer'
+local h = require('u.renderer').h
+
+-- Create an buffer for the UI
+vim.cmd.vnew()
+local ui_buf = Buffer.current()
+ui_buf:set_tmp_options()
+
+local s_count = tracker.create_signal(0)
+
+-- Effect: Render
+-- Setup the effect for rendering the UI whenever dependencies are updated
+tracker.create_effect(function()
+  -- Calling `Signal:get()` in an effect registers the given signal as a
+  -- dependency of the current effect. Whenever that signal (or any other
+  -- dependency) changes, the effect will rerun. In this particular case,
+  -- rendering the UI is an effect that depends on one signal.
+  local count = s_count:get()
+
+  -- Markup is hyperscript, which is just 1) text, and 2) tags (i.e.,
+  -- constructed with `h(...)` calls). To help organize the markup, text and
+  -- tags can be nested in tables at any depth. Line breaks must be specified
+  -- manually, with '\n'.
+  ui_buf:render {
+    'Reactive Counter Example\n',
+    '========================\n\n',
+
+    { 'Counter: ', tostring(count), '\n' },
+
+    '\n',
+
+    {
+      h('text', {
+        hl = 'DiffDelete',
+        nmap = {
+          ['<CR>'] = function()
+            -- Update the contents of the s_count signal, notifying any
+            -- dependencies (in this case, the render effect):
+            vim.schedule(function()
+              s_count:update(function(n) return n - 1 end)
+            end)
+            -- Also equivalent: s_count:set(s_count:get() - 1)
+            return ''
+          end,
+        },
+      }, ' Decrement '),
+      ' ',
+      h('text', {
+        hl = 'DiffAdd',
+        nmap = {
+          ['<CR>'] = function()
+            -- Update the contents of the s_count signal, notifying any
+            -- dependencies (in this case, the render effect):
+            vim.schedule(function()
+              s_count:update(function(n) return n + 1 end)
+            end)
+            -- Also equivalent: s_count:set(s_count:get() - 1)
+            return ''
+          end,
+        },
+      }, ' Increment '),
+    },
+
+    '\n',
+    '\n',
+    { 'Press <CR> on each "button" above to increment/decrement the counter.' },
+  }
+end)
+```
+
+</details>
+
+### `u.tracker`
+
+The `u.tracker` module provides a simple API for creating reactive variables. These can be composed in Effects and Memos utilizing Execution Contexts that track what signals are used by effects/memos.
+
+```lua
+local tracker = require('u.tracker')
+
+local s_number = tracker.Signal:new(0)
+-- auto-compute the double of the number each time it changes:
+local s_doubled = tracker.create_memo(function() return s_number:get() * 2 end)
+tracker.create_effect(function()
+  local n = s_doubled:get()
+  -- ...
+  -- whenever s_doubled changes, this function gets run
+end)
+```
+
+**Note**: circular dependencies are **not** supported.
+
+### `u.renderer`
+
+The renderer library renders hyperscript into a buffer. Each render performs a
+minimal set of changes in order to transform the current buffer text into the
+desired state.
+
+**Hyperscript** is just 1) _text_ 2) `<text>` tags, which can be nested in 3) Lua tables for readability:
+
+```lua
+local h = require('u.renderer').h
+-- Hyperscript can be organized into tables:
+{
+  "Hello, ",
+  {
+    "I am ", { "a" }, " nested table.",
+  },
+  '\n', -- newlines must be explicitly specified
+
+  -- booleans/nil are ignored:
+  some_conditional_flag and 'This text only shows when the flag is true',
+  -- e.g., use the above to show newlines in lists:
+  idx > 1 and '\n',
+
+  -- <text> tags are specified like so:
+  -- h('text', attributes, children)
+  h('text', {}, "I am a text node."),
+
+  -- <text> tags can be highlighted:
+  h('text', { hl = 'Comment' }, "I am highlighted."),
+
+  -- <text> tags can respond to key events:
+  h('text', {
+    hl = 'Keyword',
+    nmap = {
+      ["<CR>"] = function()
+        print("Hello World")
+        -- Return '' to swallow the event:
+        return ''
+      end,
+    },
+  }, "I am a text node."),
+}
+```
+
+Managing complex tables of hyperscript can be done more ergonomically using the
+`TreeBuilder` helper class:
+
+```lua
+local TreeBuilder = require('u.renderer').TreeBuilder
+
+-- ...
+renderer:render(
+  TreeBuilder.new()
+    -- text:
+    :put('some text')
+    -- hyperscript tables:
+    :put({ 'some text', 'more hyperscript' })
+    -- hyperscript tags:
+    :put_h('text', { --[[attributes]] }, { --[[children]] })
+    -- callbacks:
+    --- @param tb TreeBuilder
+    :nest(function(tb)
+      tb:put('some text')
+    end)
+    :tree()
+)
+```
+
+**Rendering**: The renderer library provides a `render` function that takes hyperscript in, and converts it to formatted buffer text:
+
+```lua
+local Renderer = require('u.renderer').Renderer
+local renderer = Renderer:new(0 --[[buffer number]])
+renderer:render {
+  -- ...hyperscript...
+}
+
+-- or, if you already have a buffer:
+local Buffer = require('u.buffer')
+local buf = Buffer.current()
+buf:render {
+  -- ...hyperscript...
+}
+```
+
+## Range Usage
 
 ### A note on indices
 
@@ -136,7 +329,8 @@ cw:write('}')
 
 #### Custom Text Objects
 
-Simply by returning a `Range` or a `Pos`, you can easily and quickly define your own text objects:
+Simply by returning a `Range` or a `Pos`, you can easily and quickly define
+your own text objects:
 
 ```lua
 local utils = require 'u.utils'

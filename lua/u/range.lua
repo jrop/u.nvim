@@ -1,9 +1,9 @@
 local Pos = require 'u.pos'
 local State = require 'u.state'
 
-local orig_on_yank = vim.highlight.on_yank
+local orig_on_yank = (vim.hl or vim.highlight).on_yank
 local on_yank_enabled = true;
-(vim.highlight --[[@as any]]).on_yank = function(opts)
+((vim.hl or vim.highlight) --[[@as any]]).on_yank = function(opts)
   if not on_yank_enabled then return end
   return orig_on_yank(opts)
 end
@@ -493,7 +493,7 @@ function Range:highlight(group, opts)
   State.run(self.start.buf, function(s)
     if not in_macro then s:track_winview() end
 
-    vim.highlight.range(
+    (vim.hl or vim.highlight).range(
       self.start.buf,
       ns,
       group,

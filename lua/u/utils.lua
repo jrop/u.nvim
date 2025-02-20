@@ -8,6 +8,18 @@ local M = {}
 ---@alias KeyMaps table<string, fun(): any | string> }
 ---@alias CmdArgs { args: string; bang: boolean; count: number; fargs: string[]; line1: number; line2: number; mods: string; name: string; range: 0|1|2; reg: string; smods: any; info: Range|nil }
 
+--- @generic T
+--- @param x `T`
+--- @param message? string
+--- @return T
+function M.dbg(x, message)
+  local t = {}
+  if message ~= nil then table.insert(t, message) end
+  table.insert(t, x)
+  vim.print(t)
+  return x
+end
+
 --- A utility for creating user commands that also pre-computes useful information
 --- and attaches it to the arguments.
 ---
@@ -107,28 +119,97 @@ function M.repeatablemap(mode, lhs, rhs, opts)
   end, vim.tbl_extend('force', opts or {}, { expr = true }))
 end
 
-function M.get_editor_dimensions()
-  local w = 0
-  local h = 0
-  local tabnr = vim.api.nvim_get_current_tabpage()
-  for _, winid in ipairs(vim.api.nvim_list_wins()) do
-    local tabpage = vim.api.nvim_win_get_tabpage(winid)
-    if tabpage == tabnr then
-      local pos = vim.api.nvim_win_get_position(winid)
-      local r, c = pos[1], pos[2]
-      local win_w = vim.api.nvim_win_get_width(winid)
-      local win_h = vim.api.nvim_win_get_height(winid)
-      local right = c + win_w
-      local bottom = r + win_h
-      if right > w then w = right end
-      if bottom > h then h = bottom end
+function M.get_editor_dimensions() return { width = vim.go.columns, height = vim.go.lines } end
+
+--- @alias LevenshteinChange<T> ({ kind: 'add'; item: T; index: number; } | { kind: 'delete'; item: T; index: number; } | { kind: 'change'; from: T; to: T; index: number; })
+--- @private
+--- @generic T
+--- @param x `T`[]
+--- @param y T[]
+--- @param cost? { of_delete?: fun(x: T): number; of_add?: fun(x: T): number; of_change?: fun(x: T, y: T): number; }
+--- @return LevenshteinChange<T>[]
+function M.levenshtein(x, y, cost)
+  cost = cost or {}
+  local cost_of_delete_f = cost.of_delete or function() return 1 end
+  local cost_of_add_f = cost.of_add or function() return 1 end
+  local cost_of_change_f = cost.of_change or function() return 1 end
+
+  local m, n = #x, #y
+  -- Initialize the distance matrix
+  local dp = {}
+  for i = 0, m do
+    dp[i] = {}
+    for j = 0, n do
+      dp[i][j] = 0
     end
   end
-  if w == 0 or h == 0 then
-    w = vim.api.nvim_win_get_width(0)
-    h = vim.api.nvim_win_get_height(0)
+
+  -- Fill the base cases
+  for i = 0, m do
+    dp[i][0] = i
   end
-  return { width = w, height = h }
+  for j = 0, n do
+    dp[0][j] = j
+  end
+
+  -- Compute the Levenshtein distance dynamically
+  for i = 1, m do
+    for j = 1, n do
+      if x[i] == y[j] then
+        dp[i][j] = dp[i - 1][j - 1] -- no cost if items are the same
+      else
+        local costDelete = dp[i - 1][j] + cost_of_delete_f(x[i])
+        local costAdd = dp[i][j - 1] + cost_of_add_f(y[j])
+        local costChange = dp[i - 1][j - 1] + cost_of_change_f(x[i], y[j])
+        dp[i][j] = math.min(costDelete, costAdd, costChange)
+      end
+    end
+  end
+
+  -- Backtrack to find the changes
+  local i = m
+  local j = n
+  --- @type LevenshteinChange[]
+  local changes = {}
+
+  while i > 0 or j > 0 do
+    local default_cost = dp[i][j]
+    local cost_of_change = (i > 0 and j > 0) and dp[i - 1][j - 1] or default_cost
+    local cost_of_add = j > 0 and dp[i][j - 1] or default_cost
+    local cost_of_delete = i > 0 and dp[i - 1][j] or default_cost
+
+    --- @param u number
+    --- @param v number
+    --- @param w number
+    local function is_first_min(u, v, w) return u <= v and u <= w end
+
+    if is_first_min(cost_of_change, cost_of_add, cost_of_delete) then
+      -- potential change
+      if x[i] ~= y[j] then
+        --- @type LevenshteinChange
+        local change = { kind = 'change', from = x[i], index = i, to = y[j] }
+        table.insert(changes, change)
+      end
+      i = i - 1
+      j = j - 1
+    elseif is_first_min(cost_of_add, cost_of_change, cost_of_delete) then
+      -- addition
+      --- @type LevenshteinChange
+      local change = { kind = 'add', item = y[j], index = i + 1 }
+      table.insert(changes, change)
+      j = j - 1
+    elseif is_first_min(cost_of_delete, cost_of_change, cost_of_add) then
+      -- deletion
+      --- @type LevenshteinChange
+      local change = { kind = 'delete', item = x[i], index = i }
+      table.insert(changes, change)
+      i = i - 1
+    else
+      error 'unreachable'
+    end
+  end
+
+  return changes
 end
 
 return M
