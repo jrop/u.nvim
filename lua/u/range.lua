@@ -127,7 +127,7 @@ function Range.from_text_object(text_obj, opts)
 
       local prev_on_yank_enabled = on_yank_enabled
       on_yank_enabled = false
-      vim.cmd.normal {
+      vim.cmd {
         cmd = 'normal',
         bang = not opts.user_defined,
         args = { '""y' .. text_obj },

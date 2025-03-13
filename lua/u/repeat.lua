@@ -1,6 +1,6 @@
 local M = {}
 
-local function _normal(cmd) vim.cmd.normal { cmd = 'normal', args = { cmd }, bang = true } end
+local function _normal(cmd) vim.cmd { cmd = 'normal', args = { cmd }, bang = true } end
 
 M.native_repeat = function() _normal '.' end
 M.native_undo = function() _normal 'u' end
