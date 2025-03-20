@@ -1,7 +1,7 @@
 local M = {}
 
 --- @params name string
-function M.file_for_name(name) return vim.fs.joinpath(vim.fn.stdpath 'cache', 'my.log', name .. '.log.jsonl') end
+function M.file_for_name(name) return vim.fs.joinpath(vim.fn.stdpath 'cache', 'u.log', name .. '.log.jsonl') end
 
 --------------------------------------------------------------------------------
 -- Logger class
@@ -49,7 +49,15 @@ function M.setup()
     local log_file_path = M.file_for_name(args.fargs[1])
     vim.fn.mkdir(vim.fs.dirname(log_file_path), 'p')
     vim.system({ 'touch', log_file_path }):wait()
-    vim.cmd.Term('tail -f "' .. log_file_path .. '"')
+
+    vim.cmd.new()
+
+    local winnr = vim.api.nvim_get_current_win()
+    vim.wo[winnr][0].number = false
+    vim.wo[winnr][0].relativenumber = false
+
+    vim.cmd.terminal('tail -f "' .. log_file_path .. '"')
+    vim.cmd.startinsert()
   end, { nargs = '*' })
 end
 
