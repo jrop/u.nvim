@@ -64,7 +64,7 @@ function State:track_mark(mark) self.marks[mark] = vim.api.nvim_buf_get_mark(sel
 function State:track_pos(pos) self.positions[pos] = vim.fn.getpos(pos) end
 
 ---@param nm string
-function State:track_global_option(nm) self.global_options[nm] = vim.g[nm] end
+function State:track_global_option(nm) self.global_options[nm] = vim.go[nm] end
 
 function State:track_winview() self.win_view = vim.fn.winsaveview() end
 
@@ -82,7 +82,7 @@ function State:restore()
     vim.keymap.set(map.mode, map.lhs, map.rhs, { buffer = map.buffer })
   end
   for nm, val in pairs(self.global_options) do
-    vim.g[nm] = val
+    vim.go[nm] = val
   end
   if self.win_view ~= nil then vim.fn.winrestview(self.win_view) end
 end

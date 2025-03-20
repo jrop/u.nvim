@@ -76,7 +76,7 @@ function M.define_text_object(key_seq, fn, opts)
       local p = range_or_pos --[[@as Pos]]
       State.run(0, function(s)
         s:track_global_option 'eventignore'
-        vim.opt_global.eventignore = 'all'
+        vim.go.eventignore = 'all'
 
         -- insert a single space, so we can select it:
         vim.api.nvim_buf_set_text(0, p.lnum, p.col, p.lnum, p.col, { ' ' })
