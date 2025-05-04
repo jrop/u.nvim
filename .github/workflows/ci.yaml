@@ -11,5 +11,6 @@ jobs:
       - uses: rhysd/action-setup-vim@v1
         with:
           neovim: true
-          version: v0.10.1
+          version: v0.11.0
+          arch: 'x86_64'
       - run: make test

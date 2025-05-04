@@ -1,1 +1,4 @@
+/.lux/
+lux.lock
 *.src.rock
+*.aider*

@@ -1,61 +1,39 @@
 local M = {}
 
-local function _normal(cmd) vim.cmd { cmd = 'normal', args = { cmd }, bang = true } end
+local IS_REPEATING = false
+--- @type function
+local REPEAT_ACTION = nil
 
-M.native_repeat = function() _normal '.' end
-M.native_undo = function() _normal 'u' end
+local function is_repeatable_last_mutator() return vim.b.changedtick <= (vim.b.my_changedtick or 0) end
 
-local function update_ts() vim.b.tt_changedtick = vim.b.changedtick end
-
----@param cmd? string|fun():unknown
-function M.set(cmd)
-  update_ts()
-  if cmd ~= nil then vim.b.tt_repeatcmd = cmd end
+--- @param f fun()
+function M.run_repeatable(f)
+  REPEAT_ACTION = f
+  REPEAT_ACTION()
+  vim.b.my_changedtick = vim.b.changedtick
 end
 
-local function tt_was_last_repeatable()
-  local ts, tt_ts = vim.b.changedtick, vim.b.tt_changedtick
-  return tt_ts ~= nil and ts <= tt_ts
-end
-
----@generic T
----@param cmd string|fun():T
----@return T
-function M.run(cmd)
-  M.set(cmd)
-  local result = cmd()
-  update_ts()
-  return result
-end
-
-function M.do_repeat()
-  local tt_cmd = vim.b.tt_repeatcmd
-  if not tt_was_last_repeatable() or (type(tt_cmd) ~= 'function' and type(tt_cmd) ~= 'string') then
-    return M.native_repeat()
-  end
-
-  -- execute the cached command:
-  local count = vim.api.nvim_get_vvar 'count1'
-  if type(tt_cmd) == 'string' then
-    _normal(count .. tt_cmd --[[@as string]])
-  else
-    local last_return
-    for _ = 1, count do
-      last_return = M.run(tt_cmd --[[@as fun():any]])
-    end
-    return last_return
-  end
-end
-
-function M.undo()
-  local tt_was_last_repeatable_before_undo = tt_was_last_repeatable()
-  M.native_undo()
-  if tt_was_last_repeatable_before_undo then update_ts() end
-end
+function M.is_repeating() return IS_REPEATING end
 
 function M.setup()
-  vim.keymap.set('n', '.', M.do_repeat)
-  vim.keymap.set('n', 'u', M.undo)
+  vim.keymap.set('n', '.', function()
+    IS_REPEATING = true
+    for _ = 1, vim.v.count1 do
+      if is_repeatable_last_mutator() and type(REPEAT_ACTION) == 'function' then
+        M.run_repeatable(REPEAT_ACTION)
+      else
+        vim.cmd { cmd = 'normal', args = { '.' }, bang = true }
+      end
+    end
+    IS_REPEATING = false
+  end)
+  vim.keymap.set('n', 'u', function()
+    local was_repeatable_last_mutator = is_repeatable_last_mutator()
+    for _ = 1, vim.v.count1 do
+      vim.cmd { cmd = 'normal', args = { 'u' }, bang = true }
+    end
+    if was_repeatable_last_mutator then vim.b.my_changedtick = vim.b.changedtick end
+  end)
 end
 
 return M

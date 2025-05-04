@@ -1,14 +1,15 @@
 local Buffer = require 'u.buffer'
 
----@class CodeWriter
----@field lines string[]
----@field indent_level number
----@field indent_str string
+--- @class u.CodeWriter
+--- @field lines string[]
+--- @field indent_level number
+--- @field indent_str string
 local CodeWriter = {}
+CodeWriter.__index = CodeWriter
 
----@param indent_level? number
----@param indent_str? string
----@return CodeWriter
+--- @param indent_level? number
+--- @param indent_str? string
+--- @return u.CodeWriter
 function CodeWriter.new(indent_level, indent_str)
   if indent_level == nil then indent_level = 0 end
   if indent_str == nil then indent_str = '  ' end
@@ -18,26 +19,27 @@ function CodeWriter.new(indent_level, indent_str)
     indent_level = indent_level,
     indent_str = indent_str,
   }
-  setmetatable(cw, { __index = CodeWriter })
+  setmetatable(cw, CodeWriter)
   return cw
 end
 
----@param p Pos
+--- @param p u.Pos
 function CodeWriter.from_pos(p)
-  local line = Buffer.from_nr(p.buf):line0(p.lnum):text()
-  return CodeWriter.from_line(line, p.buf)
+  local line = Buffer.from_nr(p.bufnr):line(p.lnum):text()
+  return CodeWriter.from_line(line, p.bufnr)
 end
 
----@param line string
----@param buf? number
-function CodeWriter.from_line(line, buf)
-  if buf == nil then buf = vim.api.nvim_get_current_buf() end
+--- @param line string
+--- @param bufnr? number
+function CodeWriter.from_line(line, bufnr)
+  if bufnr == nil then bufnr = vim.api.nvim_get_current_buf() end
 
   local ws = line:match '^%s*'
-  local expandtab = vim.api.nvim_get_option_value('expandtab', { buf = buf })
-  local shiftwidth = vim.api.nvim_get_option_value('shiftwidth', { buf = buf })
+  local expandtab = vim.api.nvim_get_option_value('expandtab', { buf = bufnr })
+  local shiftwidth = vim.api.nvim_get_option_value('shiftwidth', { buf = bufnr })
 
-  local indent_level = 0
+  --- @type number
+  local indent_level
   local indent_str = ''
   if expandtab then
     while #indent_str < shiftwidth do
@@ -52,16 +54,16 @@ function CodeWriter.from_line(line, buf)
   return CodeWriter.new(indent_level, indent_str)
 end
 
----@param line string
+--- @param line string
 function CodeWriter:write_raw(line)
   if line:find '\n' then error 'line contains newline character' end
   table.insert(self.lines, line)
 end
 
----@param line string
+--- @param line string
 function CodeWriter:write(line) self:write_raw(self.indent_str:rep(self.indent_level) .. line) end
 
----@param f? fun(cw: CodeWriter):any
+--- @param f? fun(cw: u.CodeWriter):any
 function CodeWriter:indent(f)
   local cw = {
     lines = self.lines,

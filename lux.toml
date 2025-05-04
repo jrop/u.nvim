@@ -1,0 +1,19 @@
+package = "u.nvim"
+version = "0.2.0"
+lua = ">=5.1"
+
+[description]
+summary = ""
+maintainer = "jrop"
+labels = [ "library", "neovim", "neovim-plugin", "range", "utility" ]
+
+
+[dependencies]
+# Add your dependencies here
+# `busted = ">=2.0"`
+
+[run]
+args = [ "src/main.lua" ]
+
+[build]
+type = "builtin"

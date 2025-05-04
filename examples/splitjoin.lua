@@ -4,9 +4,9 @@ local Range = require 'u.range'
 
 local M = {}
 
----@param bracket_range Range
----@param left string
----@param right string
+--- @param bracket_range u.Range
+--- @param left string
+--- @param right string
 local function split(bracket_range, left, right)
   local code = CodeWriter.from_pos(bracket_range.start)
   code:write_raw(left)
@@ -52,17 +52,21 @@ local function split(bracket_range, left, right)
   bracket_range:replace(code.lines)
 end
 
----@param bracket_range Range
----@param left string
----@param right string
+--- @param bracket_range u.Range
+--- @param left string
+--- @param right string
 local function join(bracket_range, left, right)
-  local inner_range = Range.new(bracket_range.start:must_next(), bracket_range.stop:must_next(-1), bracket_range.mode)
-  local newline = vim
-    .iter(inner_range:lines())
-    :map(function(l) return vim.trim(l) end)
-    :filter(function(l) return l ~= '' end)
-    :join ' '
-  bracket_range:replace { left .. newline .. right }
+  local inner_range = bracket_range:shrink(1)
+  if inner_range then
+    local newline = vim
+      .iter(inner_range:lines())
+      :map(function(l) return vim.trim(l) end)
+      :filter(function(l) return l ~= '' end)
+      :join ' '
+    bracket_range:replace { left .. newline .. right }
+  else
+    bracket_range:replace { left .. right }
+  end
 end
 
 local function splitjoin()
@@ -80,7 +84,7 @@ local function splitjoin()
 end
 
 function M.setup()
-  vim.keymap.set('n', 'gS', function() vim_repeat.run(splitjoin) end)
+  vim.keymap.set('n', 'gS', function() vim_repeat.run_repeatable(splitjoin) end)
 end
 
 return M

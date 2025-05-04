@@ -3,7 +3,8 @@ PLENARY_DIR=~/.local/share/nvim/site/pack/test/opt/plenary.nvim
 all: lint test
 
 lint:
-	selene .
+	lua-language-server --check=lua/u/ --checklevel=Error
+	lx check
 
 fmt:
 	stylua .
