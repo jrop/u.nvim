@@ -1,15 +1,5 @@
 local Pos = require 'u.pos'
 
--- Certain functions in the Range class yank text. In order to prevent unwanted
--- highlighting, we intercept and discard some calls to the `on_yank` callback.
-local orig_on_yank = vim.hl.on_yank
-local on_yank_enabled = true
---- @diagnostic disable-next-line: duplicate-set-field
-function vim.hl.on_yank(opts)
-  if not on_yank_enabled then return end
-  return orig_on_yank(opts)
-end
-
 --- @class u.Range
 --- @field start u.Pos
 --- @field stop u.Pos|nil
@@ -133,10 +123,6 @@ function Range.from_motion(motion, opts)
   local is_txtobj = scope == 'a' or scope == 'i'
   local is_quote_txtobj = is_txtobj and vim.tbl_contains({ "'", '"', '`' }, motion_rest)
 
-  --- @type u.Pos
-  local start
-  --- @type u.Pos
-  local stop
   -- Capture the original state of the buffer for restoration later.
   local original_state = {
     winview = vim.fn.winsaveview(),
@@ -144,59 +130,57 @@ function Range.from_motion(motion, opts)
     cursor = vim.fn.getpos '.',
     pos_lbrack = vim.fn.getpos "'[",
     pos_rbrack = vim.fn.getpos "']",
+    opfunc = vim.go.operatorfunc,
   }
+  --- @type u.Range|nil
+  local captured_range = nil
+
   vim.api.nvim_buf_call(opts.bufnr, function()
     if opts.pos ~= nil then opts.pos:save_to_pos '.' end
 
-    Pos.invalid():save_to_pos "'["
-    Pos.invalid():save_to_pos "']"
-
-    local prev_on_yank_enabled = on_yank_enabled
-    on_yank_enabled = false
+    _G.Range__from_motion_opfunc = function(ty) captured_range = Range.from_op_func(ty) end
+    vim.go.operatorfunc = 'v:lua.Range__from_motion_opfunc'
     vim.cmd {
       cmd = 'normal',
       bang = not opts.user_defined,
-      args = { '""y' .. motion },
+      args = { 'g@' .. motion },
       mods = { silent = true },
     }
-    on_yank_enabled = prev_on_yank_enabled
-
-    start = Pos.from_pos "'["
-    stop = Pos.from_pos "']"
   end)
+
   -- Restore original state:
   vim.fn.winrestview(original_state.winview)
   vim.fn.setreg('"', original_state.regquote)
   vim.fn.setpos('.', original_state.cursor)
   vim.fn.setpos("'[", original_state.pos_lbrack)
   vim.fn.setpos("']", original_state.pos_rbrack)
+  vim.go.operatorfunc = original_state.opfunc
 
-  if start == stop and start:is_invalid() then return nil end
+  if not captured_range then return nil end
 
   -- Fixup the bounds:
   if
     -- I have no idea why, but when yanking `i"`, the stop-mark is
     -- placed on the ending quote. For other text-objects, the stop-
     -- mark is placed before the closing character.
-    (is_quote_txtobj and scope == 'i' and stop:char() == motion_rest)
+    (is_quote_txtobj and scope == 'i' and captured_range.stop:char() == motion_rest)
     -- *Sigh*, this also sometimes happens for `it` as well.
-    or (motion == 'it' and stop:char() == '<')
+    or (motion == 'it' and captured_range.stop:char() == '<')
   then
-    stop = stop:next(-1) or stop
+    captured_range.stop = captured_range.stop:next(-1) or captured_range.stop
   end
   if is_quote_txtobj and scope == 'a' then
-    start = start:find_next(1, motion_rest) or start
-    stop = stop:find_next(-1, motion_rest) or stop
+    captured_range.start = captured_range.start:find_next(1, motion_rest) or captured_range.start
+    captured_range.stop = captured_range.stop:find_next(-1, motion_rest) or captured_range.stop
   end
 
   if
-    opts.contains_cursor
-    and not Range.new(start, stop):contains(Pos.new(unpack(original_state.cursor)))
+    opts.contains_cursor and not captured_range:contains(Pos.new(unpack(original_state.cursor)))
   then
     return nil
   end
 
-  return Range.new(start, stop)
+  return captured_range
 end
 
 --- Get range information from the currently selected visual text.
