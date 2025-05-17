@@ -131,14 +131,17 @@ function Range.from_motion(motion, opts)
     pos_lbrack = vim.fn.getpos "'[",
     pos_rbrack = vim.fn.getpos "']",
     opfunc = vim.go.operatorfunc,
+    prev_captured_range = _G.Range__from_motion_opfunc_captured_range,
   }
   --- @type u.Range|nil
-  local captured_range = nil
+  _G.Range__from_motion_opfunc_captured_range = nil
 
   vim.api.nvim_buf_call(opts.bufnr, function()
     if opts.pos ~= nil then opts.pos:save_to_pos '.' end
 
-    _G.Range__from_motion_opfunc = function(ty) captured_range = Range.from_op_func(ty) end
+    _G.Range__from_motion_opfunc = function(ty)
+      _G.Range__from_motion_opfunc_captured_range = Range.from_op_func(ty)
+    end
     vim.go.operatorfunc = 'v:lua.Range__from_motion_opfunc'
     vim.cmd {
       cmd = 'normal',
@@ -147,6 +150,7 @@ function Range.from_motion(motion, opts)
       mods = { silent = true },
     }
   end)
+  local captured_range = _G.Range__from_motion_opfunc_captured_range
 
   -- Restore original state:
   vim.fn.winrestview(original_state.winview)
@@ -155,6 +159,7 @@ function Range.from_motion(motion, opts)
   vim.fn.setpos("'[", original_state.pos_lbrack)
   vim.fn.setpos("']", original_state.pos_rbrack)
   vim.go.operatorfunc = original_state.opfunc
+  _G.Range__from_motion_opfunc_captured_range = original_state.prev_captured_range
 
   if not captured_range then return nil end
 
