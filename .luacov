@@ -1,0 +1,6 @@
+return {
+  include = {
+    'lua/u/',
+  },
+  tick = true,
+}

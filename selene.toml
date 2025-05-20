@@ -1,4 +1,0 @@
-std = "vim"
-
-[lints]
-multiple_statements = "allow"

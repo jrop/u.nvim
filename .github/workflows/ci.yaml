@@ -2,15 +2,28 @@
 name: NeoVim tests
 on: [push]
 jobs:
-  plenary-tests:
+  code-quality:
     runs-on: ubuntu-latest
     env:
       XDG_CONFIG_HOME: ${{ github.workspace }}/.config/
     steps:
       - uses: actions/checkout@v4
-      - uses: rhysd/action-setup-vim@v1
+      - uses: cachix/install-nix-action@v31
         with:
-          neovim: true
-          version: v0.11.0
-          arch: 'x86_64'
-      - run: make test
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Populate Nix store
+        run:
+          nix-shell --run 'true'
+
+      - name: Type-check with lua-language-server
+        run:
+          nix-shell --run 'make lint'
+
+      - name: Check formatting with stylua
+        run:
+          nix-shell --run 'make fmt-check'
+
+      - name: Run busted tests
+        run:
+          nix-shell --run 'make test'

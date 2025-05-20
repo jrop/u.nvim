@@ -1,3 +1,4 @@
+require 'luacov'
 local function withbuf(lines, f)
   vim.go.swapfile = false
 

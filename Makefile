@@ -1,16 +1,21 @@
-PLENARY_DIR=~/.local/share/nvim/site/pack/test/opt/plenary.nvim
-
-all: lint test
+all: lint fmt-check test
 
 lint:
-	lua-language-server --check=lua/u/ --checklevel=Error
-	lx check
+	@echo "## Typechecking"
+	@lua-language-server --check=lua/u/ --checklevel=Error
+
+fmt-check:
+	@echo "## Checking code format"
+	@stylua --check .
 
 fmt:
-	stylua .
+	@echo "## Formatting code"
+	@stylua .
 
-test: $(PLENARY_DIR)
-	NVIM_APPNAME=noplugstest nvim -u NORC --headless -c 'set packpath+=~/.local/share/nvim/site' -c 'packadd plenary.nvim' -c "PlenaryBustedDirectory spec/"
-
-$(PLENARY_DIR):
-	git clone https://github.com/nvim-lua/plenary.nvim/ $(PLENARY_DIR)
+test:
+	@rm -f luacov.*.out
+	@echo "## Running tests"
+	@busted --coverage --verbose
+	@echo "## Generating coverage report"
+	@luacov
+	@awk '/^Summary$$/{flag=1;next} flag{print}' luacov.report.out
