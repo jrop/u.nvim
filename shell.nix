@@ -1,8 +1,11 @@
 {
   pkgs ?
     import
-      # neovim@0.11.1: https://history.nix-packages.com/package/neovim/0.11.1
-      (fetchTarball "https://github.com/nixos/nixpkgs/tarball/e73c3bf29132da092f9c819b97b6e214367eb71f")
+      # nixpkgs-unstable (neovim@0.11.2):
+      (fetchTarball {
+        url = "https://github.com/nixos/nixpkgs/archive/e4b09e47ace7d87de083786b404bf232eb6c89d8.tar.gz";
+        sha256 = "1a2qvp2yz8j1jcggl1yvqmdxicbdqq58nv7hihmw3bzg9cjyqm26";
+      })
       { },
 }:
 pkgs.mkShell {

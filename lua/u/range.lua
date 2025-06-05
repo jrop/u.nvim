@@ -1,5 +1,7 @@
 local Pos = require 'u.pos'
 
+local ESC = vim.api.nvim_replace_termcodes('<Esc>', true, false, true)
+
 --- @class u.Range
 --- @field start u.Pos
 --- @field stop u.Pos|nil
@@ -132,6 +134,8 @@ function Range.from_motion(motion, opts)
     pos_rbrack = vim.fn.getpos "']",
     opfunc = vim.go.operatorfunc,
     prev_captured_range = _G.Range__from_motion_opfunc_captured_range,
+    prev_mode = vim.fn.mode(),
+    vinf = Range.from_vtext(),
   }
   --- @type u.Range|nil
   _G.Range__from_motion_opfunc_captured_range = nil
@@ -146,7 +150,7 @@ function Range.from_motion(motion, opts)
     vim.cmd {
       cmd = 'normal',
       bang = not opts.user_defined,
-      args = { 'g@' .. motion },
+      args = { ESC .. 'g@' .. motion },
       mods = { silent = true },
     }
   end)
@@ -158,6 +162,7 @@ function Range.from_motion(motion, opts)
   vim.fn.setpos('.', original_state.cursor)
   vim.fn.setpos("'[", original_state.pos_lbrack)
   vim.fn.setpos("']", original_state.pos_rbrack)
+  if original_state.prev_mode ~= 'n' then original_state.vinf:set_visual_selection() end
   vim.go.operatorfunc = original_state.opfunc
   _G.Range__from_motion_opfunc_captured_range = original_state.prev_captured_range
 
