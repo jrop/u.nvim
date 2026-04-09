@@ -1,20 +1,28 @@
-local txtobj = require 'u.txtobj'
-local Pos = require 'u.pos'
-local Range = require 'u.range'
-local Buffer = require 'u.buffer'
+--
+-- Custom text objects:
+--   ag   - whole file
+--   a.   - current line
+--   aq/iq - nearest quote (any type)
+--   a"/i", a'/i', a`/i` - specific quotes
+--   al"/il", al'/il', al`/il` - "last" quote (searches backward)
+--   alB/ilB, al]/il], alb/ilb, al>/il> - "last" bracket objects
+--
+local u = require 'u'
+local Pos = u.Pos
+local Range = u.Range
 
 local M = {}
 
 function M.setup()
   -- Select whole file:
-  txtobj.define('ag', function() return Buffer.current():all() end)
+  u.define_txtobj('ag', function() return Range.from_buf_text(0) end)
 
   -- Select current line:
-  txtobj.define('a.', function() return Buffer.current():line(Pos.from_pos('.').lnum) end)
+  u.define_txtobj('a.', function() return Range.from_line(0, Pos.from_pos('.').lnum) end)
 
   -- Select the nearest quote:
-  txtobj.define('aq', function() return Range.find_nearest_quotes() end)
-  txtobj.define('iq', function()
+  u.define_txtobj('aq', function() return Range.find_nearest_quotes() end)
+  u.define_txtobj('iq', function()
     local range = Range.find_nearest_quotes()
     if range == nil then return end
     return range:shrink(1)
@@ -25,8 +33,8 @@ function M.setup()
   local function define_quote_obj(q)
     local function select_around() return Range.from_motion('a' .. q) end
 
-    txtobj.define('a' .. q, function() return select_around() end)
-    txtobj.define('i' .. q, function()
+    u.define_txtobj('a' .. q, function() return select_around() end)
+    u.define_txtobj('i' .. q, function()
       local range = select_around()
       if range == nil or range:is_empty() then return range end
 
@@ -51,8 +59,8 @@ function M.setup()
       return Range.from_motion('a' .. q)
     end
 
-    txtobj.define('al' .. q, function() return select_around() end)
-    txtobj.define('il' .. q, function()
+    u.define_txtobj('al' .. q, function() return select_around() end)
+    u.define_txtobj('il' .. q, function()
       local range = select_around()
       if range == nil or range:is_empty() then return range end
 
@@ -82,8 +90,8 @@ function M.setup()
     local keybinds = { ... }
     table.insert(keybinds, b)
     for _, k in ipairs(keybinds) do
-      txtobj.define('al' .. k, function() return select_around() end)
-      txtobj.define('il' .. k, function()
+      u.define_txtobj('al' .. k, function() return select_around() end)
+      u.define_txtobj('il' .. k, function()
         local range = select_around()
         return range and range:shrink(1)
       end)

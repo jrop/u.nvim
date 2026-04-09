@@ -1,7 +1,14 @@
-local vim_repeat = require 'u.repeat'
-local Range = require 'u.range'
-local Buffer = require 'u.buffer'
-local CodeWriter = require 'u.codewriter'
+--
+-- Surround: add, change, and delete surrounding characters (quotes, brackets, HTML tags).
+--
+-- Mappings:
+--   ys{motion}{char} - add surround (e.g., ysiw" surrounds word with quotes)
+--   cs{from}{to}     - change surround (e.g., cs"' changes " to ')
+--   ds{char}         - delete surround (e.g., ds" removes surrounding quotes)
+--   S{char}          - surround visual selection
+--
+local Range = require('u').Range
+local vim_repeat = require('u').repeat_
 
 local M = {}
 
@@ -21,47 +28,37 @@ local surrounds = {
   ['`'] = { left = '`', right = '`' },
 }
 
---- @type { left: string; right: string } | nil
+--- @type { left: string, right: string } | nil
 local CACHED_BOUNDS = nil
 
---- @return { left: string; right: string }|nil
+--- @return { left: string, right: string }|nil
 local function prompt_for_bounds()
-  if vim_repeat.is_repeating() then
-    -- If we are repeating, we don't want to prompt for bounds, because
-    -- we want to reuse the last bounds:
-    return CACHED_BOUNDS
-  end
+  if vim_repeat.is_repeating() then return CACHED_BOUNDS end
 
   local cn = vim.fn.getchar()
-  -- Check for non-printable characters:
   if type(cn) ~= 'number' or cn < 32 or cn > 126 then return end
   local c = vim.fn.nr2char(cn)
 
   if c == '<' then
-    -- Surround with a tag:
     vim.keymap.set('c', '>', '><CR>')
     local tag = '<' .. vim.fn.input '<'
     if tag == '<' then return end
     vim.keymap.del('c', '>')
     local endtag = '</' .. tag:sub(2):match '[^ >]*' .. '>'
-    -- selene: allow(global_usage)
     CACHED_BOUNDS = { left = tag, right = endtag }
     return CACHED_BOUNDS
   else
-    -- Default surround:
-    CACHED_BOUNDS = (surrounds)[c] or { left = c, right = c }
+    CACHED_BOUNDS = surrounds[c] or { left = c, right = c }
     return CACHED_BOUNDS
   end
 end
 
 --- @param range u.Range
---- @param bounds { left: string; right: string }
+--- @param bounds { left: string, right: string }
 local function do_surround(range, bounds)
   local left = bounds.left
   local right = bounds.right
   if range.mode == 'V' then
-    -- If we are surrounding multiple lines, we don't care about
-    -- space-padding:
     left = vim.trim(left)
     right = vim.trim(right)
   end
@@ -69,29 +66,35 @@ local function do_surround(range, bounds)
   if range.mode == 'v' then
     range:replace(left .. range:text() .. right)
   elseif range.mode == 'V' then
-    local buf = Buffer.current()
-    local cw = CodeWriter.from_line(range.start:line(), buf.bufnr)
+    local bufnr = vim.api.nvim_get_current_buf()
+    local first_line = Range.from_line(bufnr, range.start.lnum):text()
+    local ws = first_line:match '^%s*'
+    local expandtab = vim.bo[bufnr].expandtab
+    local shiftwidth = vim.bo[bufnr].shiftwidth
 
-    -- write the left bound at the current indent level:
-    cw:write(left)
+    local indent_str, base_indent
+    if expandtab then
+      indent_str = string.rep(' ', shiftwidth)
+      base_indent = math.floor(#ws / shiftwidth)
+    else
+      indent_str = '\t'
+      base_indent = #ws
+    end
 
-    local curr_ident_prefix = cw.indent_str:rep(cw.indent_level)
-    cw:indent(function(cw2)
-      for _, line in ipairs(range:lines()) do
-        -- trim the current indent prefix from the line:
-        if line:sub(1, #curr_ident_prefix) == curr_ident_prefix then
-          --
-          line = line:sub(#curr_ident_prefix + 1)
-        end
+    local lines = {}
+    local function write(line, indent_offset)
+      table.insert(lines, indent_str:rep(base_indent + (indent_offset or 0)) .. line)
+    end
 
-        cw2:write(line)
-      end
-    end)
+    write(left)
+    local indent_prefix = indent_str:rep(base_indent)
+    for _, line in ipairs(range:lines()) do
+      if line:sub(1, #indent_prefix) == indent_prefix then line = line:sub(#indent_prefix + 1) end
+      write(line, 1)
+    end
+    write(right)
 
-    -- write the right bound at the current indent level:
-    cw:write(right)
-
-    range:replace(cw.lines)
+    range:replace(lines)
   end
 
   range.start:save_to_pos '.'
@@ -194,7 +197,7 @@ function M.setup()
       local txt_obj = vim_repeat.is_repeating() and CACHED_DELETE_FROM or vim.fn.getcharstr()
       CACHED_DELETE_FROM = txt_obj
 
-      local buf = Buffer.current()
+      local bufnr = vim.api.nvim_get_current_buf()
       local irange = Range.from_motion('i' .. txt_obj)
       local arange = Range.from_motion('a' .. txt_obj)
       if arange == nil or irange == nil then return end
@@ -216,11 +219,11 @@ function M.setup()
         -- `arange` as the final resulting range that holds the modified text
 
         -- delete last line, if it is empty:
-        local last = buf:line(arange.stop.lnum)
+        local last = Range.from_line(bufnr, arange.stop.lnum)
         if last:text():match '^%s*$' then last:replace(nil) end
 
         -- delete first line, if it is empty:
-        local first = buf:line(arange.start.lnum)
+        local first = Range.from_line(bufnr, arange.start.lnum)
         if first:text():match '^%s*$' then first:replace(nil) end
       else
         -- trim start:

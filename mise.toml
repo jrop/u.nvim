@@ -1,0 +1,107 @@
+################################################################################
+## Tool Alias
+################################################################################
+
+################################################################################
+## Tools
+################################################################################
+
+[tools]
+# nvimv needs jq:
+jq = "1.8.1"
+"asdf:mise-plugins/mise-lua" = "5.1.5"
+# Since we have busted configured to look for "nvim", have a "default" version
+# installed. In the tests, we will override with `eval $(nvimv env VERSION)`,
+# but to avoid having to litter a bunch of commands with that environment
+# initialization, this just makes things simpler:
+neovim = "0.12.1"
+stylua = "2.3.1"
+"cargo:emmylua_ls" = "0.20.0"
+"cargo:emmylua_check" = "0.20.0"
+
+################################################################################
+# Env
+################################################################################
+
+[env]
+ASDF_LUA_LUAROCKS_VERSION = "3.12.2"
+_.source = { path = "./scripts/env.sh", tools = true }
+
+################################################################################
+# Tasks
+################################################################################
+
+[tasks]
+lint = "emmylua_check --ignore '.prefix/**/*.*' ."
+fmt = "stylua ."
+"fmt:check" = "stylua --check ."
+"test:prepare" = '''
+# Install Lua test dependencies (busted, etc.):
+luarocks test --prepare
+echo
+
+# Check that the nightly version of Neovim is not more than a day old:
+if find .prefix -path '**/nightly/**/nvim' -mtime -1 2>/dev/null | grep -q .; then
+  echo "Neovim Nightly is up-to-date"
+else
+  if ./nvimv/nvimv ls | grep nightly >/dev/null; then
+    ./nvimv/nvimv upgrade nightly
+  else
+    ./nvimv/nvimv install nightly
+  fi
+fi
+echo
+'''
+
+[tasks."test:version:no-prep"]
+hide = true
+usage = '''
+arg "<version>" help="The version of Neovim to test with"
+'''
+run = '''
+echo
+echo -----------------------------
+echo -----------------------------
+echo Neovim version=$usage_version
+echo -----------------------------
+echo -----------------------------
+echo
+./nvimv/nvimv install $usage_version
+eval $(./nvimv/nvimv env $usage_version)
+busted --verbose
+'''
+
+[tasks."test:version"]
+depends = ["test:prepare"]
+usage = '''
+arg "<version>" help="The version of Neovim to test with"
+'''
+run = 'mise test:version:no-prep $usage_version'
+
+[tasks."test"]
+run = 'mise test:version 0.12.1'
+
+[tasks."test:all"]
+depends = ["test:prepare"]
+run = '''
+VERSIONS="0.11.5 0.12.1 nightly"
+for v in $VERSIONS; do
+  mise test:version:no-prep $v
+done
+'''
+
+[tasks."test:coverage"]
+depends = ["test:prepare"]
+run = '''
+rm -f ./luacov.*.*
+busted --coverage --verbose
+luacov
+awk '/^Summary$/{flag=1;next} flag{print}' luacov.report.out
+'''
+
+[tasks."ci"]
+run = '''
+mise run fmt:check
+mise run lint
+mise run test:all
+'''

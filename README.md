@@ -1,235 +1,92 @@
 # u.nvim
 
-Welcome to **u.nvim** - a powerful Lua library designed to enhance your text
-manipulation experience in NeoVim, focusing on text-manipulation utilities.
-This includes a `Range` utility, allowing you to work efficiently with text
-selections based on various conditions, as well as a declarative `Render`-er,
-making coding and editing more intuitive and productive.
+Welcome to **u.nvim** - a Lua library for text manipulation in Neovim, focusing on
+range-based text operations, positions, and operator-pending mappings.
 
-This is meant to be used as a **library**, not a plugin. On its own, `u.nvim`
-does nothing. It is meant to be used by plugin authors, to make their lives
-easier based on the variety of utilities I found I needed while growing my
-NeoVim config. To get an idea of what a plugin built on top of `u.nvim` would
-look like, check out the [examples/](./examples/) directory.
+This is a **single-file micro-library** meant to be vendored in your plugin or
+config. On its own, `u.nvim` does nothing. It is meant to be used by plugin
+authors to make their lives easier. To get an idea of what a plugin built on
+top of `u.nvim` would look like, check out the [examples/](./examples/) directory.
 
 ## Features
 
-- **Rendering System**: a utility that can declaratively render NeoVim-specific
-  hyperscript into a buffer, supporting creating/managing extmarks, highlights,
-  and key-event handling (requires NeoVim >0.11)
-- **Signals**: a simple dependency tracking system that pairs well with the
-  rendering utilities for creating reactive/interactive UIs in NeoVim.
-- **Range Utility**: Get context-aware selections with ease. Replace regions
-  with new text. Think of it as a programmatic way to work with visual
-  selections (or regions of text).
-- **Code Writer**: Write code with automatic indentation and formatting.
-- **Operator Key Mapping**: Flexible key mapping that works with the selected
-  text.
-- **Text and Position Utilities**: Convenient functions to manage text objects
-  and cursor positions.
+- **Range Utility**: Get context-aware selections with ease. Replace regions with
+  new text. Think of it as a programmatic way to work with visual selections.
+- **Position Utilities**: Work with cursor positions, marks, and extmarks.
+- **Operator Key Mapping**: Flexible key mapping that works with motions.
+- **Text Object Definitions**: Define custom text objects easily.
+- **User Command Helpers**: Create commands with range support.
+- **Repeat Utilities**: Dot-repeat support for custom operations.
 
 ### Installation
 
-This being a library, and not a proper plugin, it is recommended that you
-vendor the specific version of this library that you need, including it in your
-code. Package managers are a developing landscape for Lua in the context of
-NeoVim. Perhaps in the future, `lux` will eliminate the need to vendor this
-library in your application code.
+This being a library, and not a proper plugin, it is recommended that you vendor
+the specific version of this library that you need, including it in your code.
+Package managers are a developing landscape for Lua in the context of NeoVim.
+Perhaps in the future, `lux` will eliminate the need to vendor this library in
+your application code.
 
-## Signal and Rendering Usage
+#### If you are a Plugin Author
 
-### Overview
-
-The Signal and Rendering mechanisms are two subsystems of u.nvim, that, while
-simplistic, [compose](./examples/counter.lua) [together](./examples/filetree.lua)
-[powerfully](./examples/picker.lua) to create a system for interactive and
-responsive user interfaces. Here is a quick example that show-cases how easy it
-is to dive in to make any buffer an interactive UI:
+Neovim does not have a good answer for automatic management of plugin dependencies. As such, it is recommended that library authors vendor u.nvim within their plugin. **u.nvim** is implemented in a single file, so this should be relatively painless. Furthermore, `lua/u.lua` versions are published into artifact tags `artifact-vX.Y.Z` as `init.lua` so that plugin authors can add u.nvim as a submodule to their plugin.
 
 <details>
-<summary>Example Code: counter.lua</summary>
+<summary>Example git submodule setup</summary>
+
+```bash
+# In your plugin repository
+git submodule add -- https://github.com/jrop/u.nvim lua/my_plugin/u
+cd lua/my_plugin/u/
+git checkout artifact-v0.2.0 # put whatever version of u.nvim you want to pin here
+# ... commit the submodule within your repo
+
+# This would place u.nvim@v0.2.0 at:
+# lua/my_plugin/u/init.lua
+```
+
+Then in your plugin code:
 
 ```lua
-local tracker = require 'u.tracker'
-local Buffer = require 'u.buffer'
-local h = require('u.renderer').h
+local u = require('my_plugin.u')
 
--- Create an buffer for the UI
-vim.cmd.vnew()
-local ui_buf = Buffer.current()
-ui_buf:set_tmp_options()
+local Pos = u.Pos
+local Range = u.Range
+-- etc.
+```
 
-local s_count = tracker.create_signal(0)
+This approach allows plugin authors to:
+- Pin to specific versions of u.nvim
+- Get updates by pulling/committing new **u.nvim** versions (i.e., the usual git submodule way)
+- Keep the dependency explicit and version-controlled
+- Avoid namespace conflicts with user-installed plugins
 
--- Effect: Render
--- Setup the effect for rendering the UI whenever dependencies are updated
-tracker.create_effect(function()
-  -- Calling `Signal:get()` in an effect registers the given signal as a
-  -- dependency of the current effect. Whenever that signal (or any other
-  -- dependency) changes, the effect will rerun. In this particular case,
-  -- rendering the UI is an effect that depends on one signal.
-  local count = s_count:get()
+</details>
 
-  -- Markup is hyperscript, which is just 1) text, and 2) tags (i.e.,
-  -- constructed with `h(...)` calls). To help organize the markup, text and
-  -- tags can be nested in tables at any depth. Line breaks must be specified
-  -- manually, with '\n'.
-  ui_buf:render {
-    'Reactive Counter Example\n',
-    '========================\n\n',
+#### If you are a User
 
-    { 'Counter: ', tostring(count), '\n' },
+If you want to use u.nvim in your config directly:
 
-    '\n',
+<details>
+<summary>vim.pack</summary>
 
-    {
-      h('text', {
-        hl = 'DiffDelete',
-        nmap = {
-          ['<CR>'] = function()
-            -- Update the contents of the s_count signal, notifying any
-            -- dependencies (in this case, the render effect):
-            vim.schedule(function()
-              s_count:update(function(n) return n - 1 end)
-            end)
-            -- Also equivalent: s_count:set(s_count:get() - 1)
-            return ''
-          end,
-        },
-      }, ' Decrement '),
-      ' ',
-      h('text', {
-        hl = 'DiffAdd',
-        nmap = {
-          ['<CR>'] = function()
-            -- Update the contents of the s_count signal, notifying any
-            -- dependencies (in this case, the render effect):
-            vim.schedule(function()
-              s_count:update(function(n) return n + 1 end)
-            end)
-            -- Also equivalent: s_count:set(s_count:get() - 1)
-            return ''
-          end,
-        },
-      }, ' Increment '),
-    },
-
-    '\n',
-    '\n',
-    { 'Press <CR> on each "button" above to increment/decrement the counter.' },
-  }
-end)
+```lua
+vim.pack.add { 'https://github.com/jrop/u.nvim' }
 ```
 
 </details>
 
-### `u.tracker`
-
-The `u.tracker` module provides a simple API for creating reactive variables.
-These can be composed in Effects and Memos utilizing Execution Contexts that
-track what signals are used by effects/memos.
+<details>
+<summary>lazy.nvim</summary>
 
 ```lua
-local tracker = require('u.tracker')
-
-local s_number = tracker.Signal:new(0)
--- auto-compute the double of the number each time it changes:
-local s_doubled = tracker.create_memo(function() return s_number:get() * 2 end)
-tracker.create_effect(function()
-  local n = s_doubled:get()
-  -- ...
-  -- whenever s_doubled changes, this function gets run
-end)
-```
-
-**Note**: circular dependencies are **not** supported.
-
-### `u.renderer`
-
-The renderer library renders hyperscript into a buffer. Each render performs a
-minimal set of changes in order to transform the current buffer text into the
-desired state.
-
-**Hyperscript** is just 1) _text_ 2) `<text>` tags, which can be nested in 3)
-Lua tables for readability:
-
-```lua
-local h = require('u.renderer').h
--- Hyperscript can be organized into tables:
 {
-  "Hello, ",
-  {
-    "I am ", { "a" }, " nested table.",
-  },
-  '\n', -- newlines must be explicitly specified
-
-  -- booleans/nil are ignored:
-  some_conditional_flag and 'This text only shows when the flag is true',
-  -- e.g., use the above to show newlines in lists:
-  idx > 1 and '\n',
-
-  -- <text> tags are specified like so:
-  -- h('text', attributes, children)
-  h('text', {}, "I am a text node."),
-
-  -- <text> tags can be highlighted:
-  h('text', { hl = 'Comment' }, "I am highlighted."),
-
-  -- <text> tags can respond to key events:
-  h('text', {
-    hl = 'Keyword',
-    nmap = {
-      ["<CR>"] = function()
-        print("Hello World")
-        -- Return '' to swallow the event:
-        return ''
-      end,
-    },
-  }, "I am a text node."),
+  'jrop/u.nvim',
+  lazy = true,
 }
 ```
 
-Managing complex tables of hyperscript can be done more ergonomically using the
-`TreeBuilder` helper class:
+</details>
 
-```lua
-local TreeBuilder = require('u.renderer').TreeBuilder
-
--- ...
-renderer:render(
-  TreeBuilder.new()
-    -- text:
-    :put('some text')
-    -- hyperscript tables:
-    :put({ 'some text', 'more hyperscript' })
-    -- hyperscript tags:
-    :put_h('text', { --[[attributes]] }, { --[[children]] })
-    -- callbacks:
-    --- @param tb TreeBuilder
-    :nest(function(tb)
-      tb:put('some text')
-    end)
-    :tree()
-)
-```
-
-**Rendering**: The renderer library provides a `render` function that takes
-hyperscript in, and converts it to formatted buffer text:
-
-```lua
-local Renderer = require('u.renderer').Renderer
-local renderer = Renderer:new(0 --[[buffer number]])
-renderer:render {
-  -- ...hyperscript...
-}
-
--- or, if you already have a buffer:
-local Buffer = require('u.buffer')
-local buf = Buffer.current()
-buf:render {
-  -- ...hyperscript...
-}
-```
 
 ## Range Usage
 
@@ -265,17 +122,17 @@ interop conversions when calling `:api` functions.
 
 ### 1. Creating a Range
 
-The `Range` utility is the main feature upon which most other things in this
-library are built, aside from a few standalone utilities. Ranges can be
-constructed manually, or preferably, obtained based on a variety of contexts.
+The `Range` utility is the main feature of this library. Ranges can be constructed
+manually, or preferably, obtained based on a variety of contexts.
 
 ```lua
-local Range = require 'u.range'
-local start = Pos.new(0, 1, 1) -- Line 1, first column
-local stop = Pos.new(0, 3, 1) -- Line 3, first column
+local u = require 'u'
 
-Range.new(start, stop, 'v') -- charwise selection
-Range.new(start, stop, 'V') -- linewise selection
+local start = u.Pos.new(nil, 1, 1) -- Line 1, first column
+local stop = u.Pos.new(nil, 3, 1)  -- Line 3, first column
+
+u.Range.new(start, stop, 'v') -- charwise selection
+u.Range.new(start, stop, 'V') -- linewise selection
 ```
 
 This is usually not how you want to obtain a `Range`, however. Usually you want
@@ -283,21 +140,23 @@ to get the corresponding context of an edit operation and just "get me the
 current Range that represents this context".
 
 ```lua
+local u = require 'u'
+
 -- get the first line in a buffer:
-Range.from_line(bufnr, 1)
+u.Range.from_line(bufnr, 1)
 
 -- Text Objects (any text object valid in your configuration is supported):
 -- get the word the cursor is on:
-Range.from_motion('iw')
+u.Range.from_motion('iw')
 -- get the WORD the cursor is on:
-Range.from_motion('iW')
+u.Range.from_motion('iW')
 -- get the "..." the cursor is within:
-Range.from_motion('a"')
+u.Range.from_motion('a"')
 
 -- Get the currently visually selected text:
 -- NOTE: this does NOT work within certain contexts; more specialized utilities
 -- are more appropriate in certain circumstances
-Range.from_vtext()
+u.Range.from_vtext()
 
 --
 -- Get the operated on text obtained from a motion:
@@ -305,7 +164,7 @@ Range.from_vtext()
 --
 --- @param ty 'char'|'line'|'block'
 function MyOpFunc(ty)
-  local range = Range.from_op_func(ty)
+  local range = u.Range.from_op_func(ty)
   -- do something with the range
 end
 -- Try invoking this with: `<Leader>toaw`, and the current word will be the
@@ -321,7 +180,7 @@ end, { expr = true })
 -- When executing commands in a visual context, getting the selected text has
 -- to be done differently:
 vim.api.nvim_create_user_command('MyCmd', function(args)
-  local range = Range.from_cmd_args(args)
+  local range = u.Range.from_cmd_args(args)
   if range == nil then
     -- the command was executed in normal mode
   else
@@ -336,7 +195,7 @@ range once you have one? Plenty, it turns out!
 ```lua
 local range = ...
 range:lines() -- get the lines in the range's region
-range:text() -- get the text (i.e., string) in the range's region
+range:text()  -- get the text (i.e., string) in the range's region
 range:line(1) -- get the first line within this range
 range:line(-1) -- get the last line within this range
 -- replace with new contents:
@@ -354,67 +213,124 @@ range:replace(nil)
 Define custom (dot-repeatable) key mappings for text objects:
 
 ```lua
-local opkeymap = require 'u.opkeymap'
+local u = require 'u'
 
 -- invoke this function by typing, for example, `<leader>riw`:
 -- `range` will contain the bounds of the motion `iw`.
-opkeymap('n', '<leader>r', function(range)
+u.opkeymap('n', '<leader>r', function(range)
   print(range:text()) -- Prints the text within the selected range
 end)
 ```
 
-### 3. Working with Code Writer
-
-To write code with indentation, use the `CodeWriter` class:
-
-```lua
-local CodeWriter = require 'u.codewriter'
-local cw = CodeWriter.new()
-cw:write('{')
-cw:indent(function(innerCW)
-  innerCW:write('x: 123')
-end)
-cw:write('}')
-```
-
-### 4. Utility Functions
+### 3. Utility Functions
 
 #### Custom Text Objects
 
-Simply by returning a `Range` or a `Pos`, you can easily and quickly define
-your own text objects:
+Simply by returning a `Range`, you can easily define your own text objects:
 
 ```lua
-local txtobj = require 'u.txtobj'
-local Range = require 'u.range'
+local u = require 'u'
 
 -- Select whole file:
-txtobj.define('ag', function()
-  return Range.from_buf_text()
+u.define_txtobj('ag', function()
+  return u.Range.from_buf_text()
+end)
+
+-- Select content inside nearest quotes:
+u.define_txtobj('iq', function()
+  return u.Range.find_nearest_quotes()
+end)
+
+-- Select content inside nearest brackets:
+u.define_txtobj('ib', function()
+  return u.Range.find_nearest_brackets()
 end)
 ```
 
-#### Buffer Management
+#### User Commands with Range Support
 
-Access and manipulate buffers easily:
+Create user commands that work with visual selections:
 
 ```lua
-local Buffer = require 'u.buffer'
-local buf = Buffer.current()
-buf.b.<option>        -- get buffer-local variables
-buf.b.<option>  = ... -- set buffer-local variables
-buf.bo.<option>       -- get buffer options
-buf.bo.<option> = ... -- set buffer options
-buf:line_count()      -- the number of lines in the current buffer
-buf:all()             -- returns a Range representing the entire buffer
-buf:is_empty()        -- returns true if the buffer has no text
-buf:append_line '...'
-buf:line(1)           -- returns a Range representing the first line in the buffer
-buf:line(-1)          -- returns a Range representing the last line in the buffer
-buf:lines(1, 2)       -- returns a Range representing the first two lines in the buffer
-buf:lines(2, -2)      -- returns a Range representing all but the first and last lines of a buffer
-buf:txtobj('iw')      -- returns a Range representing the text object 'iw' in the give buffer
+local u = require 'u'
+
+u.ucmd('MyCmd', function(args)
+  if args.info then
+    -- args.info is a Range representing the selection
+    print('Selected text:', args.info:text())
+  else
+    -- No range provided
+    print('No selection')
+  end
+end, { range = true })
 ```
+
+#### Repeat Utilities
+
+Enable dot-repeat for custom operations:
+
+```lua
+local u = require 'u'
+
+-- Call this in your plugin's setup:
+u.repeat_.setup()
+
+-- Then use in your operations:
+u.repeat_.run_repeatable(function()
+  -- Your mutation here
+  -- This will be repeatable with '.'
+end)
+```
+
+## API Reference
+
+### `u.Pos`
+
+Position class representing a location in a buffer.
+
+```lua
+local pos = u.Pos.new(bufnr, lnum, col, off)
+pos:next(1)      -- next position (forward)
+pos:next(-1)     -- previous position (backward)
+pos:char()       -- character at position
+pos:line()       -- line text
+pos:eol()        -- end of line position
+pos:save_to_cursor() -- move cursor to position
+```
+
+### `u.Range`
+
+Range class representing a text region.
+
+```lua
+local range = u.Range.new(start, stop, mode)
+range:text()     -- get text content
+range:lines()    -- get lines as array
+range:replace(text) -- replace with new text
+range:contains(pos) -- check if position is within range
+range:shrink(n)  -- shrink range by n characters from each side
+range:highlight('Search') -- highlight range temporarily
+```
+
+### `u.opkeymap(mode, lhs, rhs, opts)`
+
+Create operator-pending keymaps.
+
+### `u.define_txtobj(key_seq, fn, opts)`
+
+Define custom text objects.
+
+### `u.ucmd(name, cmd, opts)`
+
+Create user commands with enhanced range support.
+
+### `u.create_delegated_cmd_args(args)`
+
+Create arguments for delegating between commands.
+
+### `u.repeat_`
+
+Module for dot-repeat support.
 
 ## License (MIT)
 

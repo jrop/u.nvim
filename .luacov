@@ -1,6 +1,6 @@
 return {
   include = {
-    'lua/u/',
+    'lua/u$',
   },
   tick = true,
 }

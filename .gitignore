@@ -1,3 +1,4 @@
+.prefix/
 *.src.rock
 *.aider*
 luacov.*.out

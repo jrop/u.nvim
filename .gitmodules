@@ -1,0 +1,12 @@
+[submodule "library/busted"]
+	path = library/busted
+	url = https://github.com/LuaCATS/busted
+	branch = main
+[submodule "library/luv"]
+	path = library/luv
+	url = https://github.com/LuaCATS/luv
+	branch = main
+[submodule "nvimv"]
+	path = nvimv
+	url = https://github.com/jrop/nvimv
+	branch = main
