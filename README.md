@@ -1,8 +1,8 @@
 # u.nvim
 
-🚨🚨 **BRANCH NOTICE: further development is happening on the `v2` branch. In the future, `v2` will be merged into `master`. If you want to pin to an older version of this library, please refer to a specific commit, or the `v1` branch.** 🚨🚨
+🚨🚨 **BRANCH NOTICE: further development is happening on the `v3` branch. In the future, `v3` will be merged into `master`. If you want to pin to an older version of this library, please refer to a specific commit, or the `v1` branch.** 🚨🚨
 
-🚨🚨[CLICK HERE FOR v2](https://github.com/jrop/u.nvim/tree/v2)🚨🚨
+🚨🚨[CLICK HERE FOR v3](https://github.com/jrop/u.nvim/tree/v3)🚨🚨
 
 Welcome to **u.nvim** – a powerful Lua library designed to enhance your text manipulation experience in NeoVim, focusing primarily on a context-aware "Range" utility. This utility allows you to work efficiently with text selections based on various conditions, in a variety of contexts, making coding and editing more intuitive and productive.
 
