@@ -17,8 +17,9 @@ jq = "1.8.1"
 neovim = "0.12.1"
 "http:nvimv" = { version = "latest", url = "https://raw.githubusercontent.com/jrop/nvimv/refs/heads/main/nvimv" }
 stylua = "2.3.1"
-"cargo:emmylua_ls" = "0.20.0"
-"cargo:emmylua_check" = "0.20.0"
+cargo-binstall = "1.18.1"
+"cargo:emmylua_ls" = { version = "0.20.0", depends=["cargo-binstall"] }
+"cargo:emmylua_check" = { version = "0.20.0", depends=["cargo-binstall"] }
 
 ################################################################################
 # Env
