@@ -1,6 +1,10 @@
 require 'luacov'
 
---- @diagnostic disable: undefined-field, need-check-nil
+--- @diagnostic disable: need-check-nil
+--- @diagnostic disable: param-type-mismatch
+--- @diagnostic disable: undefined-field
+--- @diagnostic disable: unnecessary-assert
+
 local Pos = require('u').Pos
 local Range = require('u').Range
 local function withbuf(lines, f)
@@ -374,9 +378,6 @@ describe('Range', function()
       vim.fn.setpos('.', { 0, 1, 1, 0 })
       vim.cmd.normal 'vll' -- select 'the' (3 chars)
 
-      -- Record initial visual marks
-      local initial_v = vim.fn.getpos 'v'
-
       -- Call from_motion (should save and restore visual selection)
       local range = Range.from_motion 'aw'
       assert.is_not_nil(range)
@@ -661,7 +662,7 @@ describe('Range', function()
       -- histget()
       local orig_histget = vim.fn.histget
       --- @diagnostic disable-next-line: duplicate-set-field
-      function vim.fn.histget(x, y) return [['<,'>]] end
+      function vim.fn.histget() return [['<,'>]] end
 
       -- Now run the test:
       local range = Range.from_cmd_args(args) --[[@as u.Range]]
