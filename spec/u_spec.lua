@@ -372,6 +372,85 @@ describe('Range', function()
     vim.api.nvim_buf_delete(buf2, { force = true })
   end)
 
+  it('from_motion does not modify the jumplist', function()
+    withbuf({
+      'line1',
+      '(hello world)',
+      'line3',
+      '{foo bar}',
+      'line5',
+    }, function()
+      -- Build up a jumplist that includes line 2:
+      vim.cmd.normal { args = { '5G' }, bang = true }
+      vim.cmd.normal { args = { '2G' }, bang = true }
+      vim.cmd.normal { args = { '4G' }, bang = true }
+      vim.cmd.normal { args = { '5G' }, bang = true }
+
+      -- Position cursor on line 2 (which is in the jumplist), inside the parens
+      vim.fn.setpos('.', { 0, 2, 3, 0 })
+
+      local jl_before = vim.fn.getjumplist()
+      local n_before = #jl_before[1]
+      local curjump_before = jl_before[2]
+
+      -- g@a( corrupts the jumplist by deduplicating the entry for line 2.
+      -- This is a query-only operation and should NOT change the jumplist:
+      Range.from_motion('a(', { contains_cursor = true })
+
+      local jl_after = vim.fn.getjumplist()
+
+      assert.are.same(
+        n_before,
+        #jl_after[1],
+        'from_motion should not add or remove jumplist entries'
+      )
+      assert.are.same(
+        curjump_before,
+        jl_after[2],
+        'from_motion should not change the curjump pointer'
+      )
+    end)
+  end)
+
+  it('find_nearest_brackets does not modify the jumplist', function()
+    withbuf({
+      'line1',
+      '(hello world)',
+      'line3',
+      '{foo bar}',
+      'line5',
+    }, function()
+      -- Build up a jumplist:
+      vim.cmd.normal { args = { '5G' }, bang = true }
+      vim.cmd.normal { args = { '2G' }, bang = true }
+      vim.cmd.normal { args = { '4G' }, bang = true }
+      vim.cmd.normal { args = { '5G' }, bang = true }
+
+      -- Move to a line near brackets
+      vim.fn.setpos('.', { 0, 2, 3, 0 })
+
+      local jl_before = vim.fn.getjumplist()
+      local n_before = #jl_before[1]
+      local curjump_before = jl_before[2]
+
+      -- This calls from_motion internally and should NOT change the jumplist:
+      Range.find_nearest_brackets()
+
+      local jl_after = vim.fn.getjumplist()
+
+      assert.are.same(
+        n_before,
+        #jl_after[1],
+        'find_nearest_brackets should not add or remove jumplist entries'
+      )
+      assert.are.same(
+        curjump_before,
+        jl_after[2],
+        'find_nearest_brackets should not change the curjump pointer'
+      )
+    end)
+  end)
+
   it('from_motion restores visual selection when started in visual mode', function()
     withbuf({ 'the quick brown fox' }, function()
       -- Enter visual mode first

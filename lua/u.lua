@@ -552,12 +552,10 @@ function Range.from_motion(motion, opts)
     local old_eventignore = vim.o.eventignore
     vim.o.eventignore = 'all'
     vim.go.operatorfunc = 'v:lua.Range__from_motion_opfunc'
-    vim.cmd {
-      cmd = 'normal',
-      bang = not opts.user_defined,
-      args = { ESC .. 'g@' .. motion },
-      mods = { silent = true },
-    }
+    vim.cmd(
+      'keepjumps normal' .. (not opts.user_defined and '!' or '') .. ' ' .. ESC .. 'g@' .. motion,
+      { mods = { silent = true } }
+    )
     vim.o.eventignore = old_eventignore
   end)
   local captured_range = _G.Range__from_motion_opfunc_captured_range
