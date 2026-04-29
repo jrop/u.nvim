@@ -14,8 +14,8 @@ jq = "1.8.1"
 # installed. In the tests, we will override with `eval $(nvimv env VERSION)`,
 # but to avoid having to litter a bunch of commands with that environment
 # initialization, this just makes things simpler:
-neovim = "0.12.1"
-"http:nvimv" = { version = "latest", url = "https://raw.githubusercontent.com/jrop/nvimv/refs/heads/main/nvimv" }
+neovim = "0.12.2"
+"http:nvimv" = { version = "2d018f5", url = "https://raw.githubusercontent.com/jrop/nvimv/2d018f55173bb88e6fb41e6f07a4908e5619c136/nvimv" }
 stylua = "2.3.1"
 cargo-binstall = "1.18.1"
 "cargo:emmylua_ls" = { version = "0.20.0", depends=["cargo-binstall"] }
