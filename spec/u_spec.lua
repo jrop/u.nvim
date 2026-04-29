@@ -468,6 +468,118 @@ describe('Range', function()
     end)
   end)
 
+  describe('from_motion with max_lines', function()
+    it('returns nil when bracket chars are beyond max_lines', function()
+      -- A large block where { and } are far from cursor
+      local lines = {}
+      lines[1] = '{'
+      for i = 2, 200 do
+        lines[i] = 'content'
+      end
+      lines[201] = '}'
+      withbuf(lines, function()
+        vim.fn.setpos('.', { 0, 100, 1, 0 }) -- cursor inside the block, 99 lines from {
+        -- max_lines=50: { is 99 lines above, } is 101 lines below → pre-check fails
+        local range = Range.from_motion('a{', { max_lines = 50 })
+        assert.is_nil(range)
+      end)
+    end)
+
+    it('finds brackets within max_lines range', function()
+      withbuf({ 'this is a {', 'block', '} here' }, function()
+        vim.fn.setpos('.', { 0, 2, 1, 0 })
+        local range = Range.from_motion('a{', { max_lines = 10 })
+        assert.is_not_nil(range)
+        assert.are.same('{\nblock\n}', range:text())
+      end)
+    end)
+
+    it('works for closing bracket chars ) ] } >', function()
+      withbuf({ 'this is a (', 'block', ') here' }, function()
+        vim.fn.setpos('.', { 0, 2, 1, 0 })
+        local range = Range.from_motion('a)', { max_lines = 10 })
+        assert.is_not_nil(range)
+        assert.are.same('(\nblock\n)', range:text())
+      end)
+    end)
+
+    it('works for b and B aliases', function()
+      withbuf({ 'this is a {', 'block', '} here' }, function()
+        vim.fn.setpos('.', { 0, 2, 1, 0 })
+        local range = Range.from_motion('aB', { max_lines = 10 })
+        assert.is_not_nil(range)
+        assert.are.same('{\nblock\n}', range:text())
+      end)
+    end)
+
+    it('returns nil when quote chars are beyond max_lines', function()
+      local lines = {}
+      for i = 1, 200 do
+        lines[i] = 'no quotes here'
+      end
+      lines[1] = '"quoted"'
+      withbuf(lines, function()
+        vim.fn.setpos('.', { 0, 100, 1, 0 }) -- cursor 99 lines from quote char
+        local range = Range.from_motion('a"', { max_lines = 50 })
+        assert.is_nil(range)
+      end)
+    end)
+
+    it('finds quotes within max_lines range', function()
+      withbuf({ [[the "quick" brown fox]] }, function()
+        vim.fn.setpos('.', { 0, 1, 5, 0 })
+        local range = Range.from_motion('a"', { max_lines = 10 })
+        assert.is_not_nil(range)
+        assert.are.same('"quick"', range:text())
+      end)
+    end)
+
+    it('max_lines nil (default) does not pre-check', function()
+      local lines = {}
+      lines[1] = '{'
+      for i = 2, 200 do
+        lines[i] = 'content'
+      end
+      lines[201] = '}'
+      withbuf(lines, function()
+        vim.fn.setpos('.', { 0, 100, 1, 0 })
+        -- Without max_lines, g@ runs and finds the block
+        local range = Range.from_motion 'a{'
+        assert.is_not_nil(range)
+      end)
+    end)
+
+    it('skips brackets in lines exceeding max_col', function()
+      local long_line = string.rep('x', 10240) .. '{block}'
+      withbuf({ long_line }, function()
+        vim.fn.setpos('.', { 0, 1, 10245, 0 }) -- cursor inside {block}
+        -- { is at col 10241, beyond max_col=10240
+        local range = Range.from_motion('a{', { max_lines = 10, max_col = 10240 })
+        assert.is_nil(range)
+      end)
+    end)
+
+    it('finds brackets within max_col on a long line', function()
+      local long_line = string.rep('x', 100) .. '{block}'
+      withbuf({ long_line }, function()
+        vim.fn.setpos('.', { 0, 1, 105, 0 }) -- cursor inside 'block'
+        local range = Range.from_motion('a{', { max_lines = 10, max_col = 10240 })
+        assert.is_not_nil(range)
+        assert.are.same('{block}', range:text())
+      end)
+    end)
+
+    it('max_col nil (default) does not limit column search', function()
+      local long_line = string.rep('x', 10240) .. '{block}'
+      withbuf({ long_line }, function()
+        vim.fn.setpos('.', { 0, 1, 10245, 0 }) -- cursor inside {block}
+        -- { at col 10241, but no max_col limit
+        local range = Range.from_motion('a{', { max_lines = 10 })
+        assert.is_not_nil(range)
+      end)
+    end)
+  end)
+
   it('from_tsquery_caps', function()
     withbuf({
       '-- a comment',

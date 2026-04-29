@@ -511,8 +511,21 @@ function Range.from_lines(bufnr, start_line, stop_line)
   return Range.new(Pos.new(bufnr, start_line, 1), Pos.new(bufnr, stop_line, vim.v.maxcol), 'V')
 end
 
+local BRACKET_MAP = {
+  ['('] = '(',
+  [')'] = '(',
+  ['b'] = '(',
+  ['{'] = '{',
+  ['}'] = '{',
+  ['B'] = '{',
+  ['['] = '[',
+  [']'] = '[',
+  ['<'] = '<',
+  ['>'] = '<',
+}
+
 --- @param motion string
---- @param opts? { bufnr?: number, contains_cursor?: boolean, pos?: u.Pos, user_defined?: boolean }
+--- @param opts? { bufnr?: number, contains_cursor?: boolean, pos?: u.Pos, user_defined?: boolean, max_lines?: number, max_col?: number }
 --- @return u.Range|nil
 function Range.from_motion(motion, opts)
   -- SECTION: Normalize options
@@ -526,6 +539,7 @@ function Range.from_motion(motion, opts)
   local scope, motion_rest = motion:sub(1, 1), motion:sub(2)
   local is_txtobj = scope == 'a' or scope == 'i'
   local is_quote_txtobj = is_txtobj and vim.tbl_contains({ "'", '"', '`' }, motion_rest)
+  local is_bracket_txtobj = is_txtobj and BRACKET_MAP[motion_rest] ~= nil
 
   -- SECTION: Capture original state for restoration
   local original_state = {
@@ -545,6 +559,29 @@ function Range.from_motion(motion, opts)
   -- SECTION: Execute motion and capture result
   vim.api.nvim_buf_call(opts.bufnr, function()
     if opts.pos ~= nil then opts.pos:save_to_pos '.' end
+
+    -- Pre-check: skip expensive g@ when target char not found within bounds
+    if
+      (is_bracket_txtobj or is_quote_txtobj)
+      and type(opts.max_lines) == 'number'
+      and opts.max_lines > 0
+    then
+      local cur = vim.fn.line '.'
+      local line_start = math.max(1, cur - opts.max_lines)
+      local line_end = math.min(vim.api.nvim_buf_line_count(opts.bufnr), cur + opts.max_lines)
+      local chunk = vim.api.nvim_buf_get_lines(opts.bufnr, line_start - 1, line_end, false)
+      local target = is_bracket_txtobj and BRACKET_MAP[motion_rest] or motion_rest
+      local max_col = opts.max_col
+      local found = false
+      for _, line in ipairs(chunk) do
+        local pos = line:find(target, 1, true)
+        if pos and (max_col == nil or pos <= max_col) then
+          found = true
+          break
+        end
+      end
+      if not found then return end
+    end
 
     _G.Range__from_motion_opfunc = function(ty)
       _G.Range__from_motion_opfunc_captured_range = Range.from_op_func(ty)
@@ -663,20 +700,28 @@ function Range.from_cmd_args(args)
   end
 end
 
-function Range.find_nearest_brackets()
+--- @param opts? { max_lines?: number, max_col?: number }
+--- @return u.Range|nil
+function Range.find_nearest_brackets(opts)
+  opts = opts or {}
+  local copts = { contains_cursor = true, max_lines = opts.max_lines, max_col = opts.max_col }
   return Range.smallest {
-    Range.from_motion('a<', { contains_cursor = true }),
-    Range.from_motion('a[', { contains_cursor = true }),
-    Range.from_motion('a(', { contains_cursor = true }),
-    Range.from_motion('a{', { contains_cursor = true }),
+    Range.from_motion('a<', copts),
+    Range.from_motion('a[', copts),
+    Range.from_motion('a(', copts),
+    Range.from_motion('a{', copts),
   }
 end
 
-function Range.find_nearest_quotes()
+--- @param opts? { max_lines?: number, max_col?: number }
+--- @return u.Range|nil
+function Range.find_nearest_quotes(opts)
+  opts = opts or {}
+  local copts = { contains_cursor = true, max_lines = opts.max_lines, max_col = opts.max_col }
   return Range.smallest {
-    Range.from_motion([[a']], { contains_cursor = true }),
-    Range.from_motion([[a"]], { contains_cursor = true }),
-    Range.from_motion([[a`]], { contains_cursor = true }),
+    Range.from_motion([[a']], copts),
+    Range.from_motion([[a"]], copts),
+    Range.from_motion([[a`]], copts),
   }
 end
 
