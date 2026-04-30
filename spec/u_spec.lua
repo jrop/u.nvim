@@ -468,6 +468,42 @@ describe('Range', function()
     end)
   end)
 
+  it('from_motion preserves visual selection orientation (cursor at start)', function()
+    withbuf({ 'the quick brown fox' }, function()
+      vim.fn.setpos('.', { 0, 1, 5, 0 })
+      vim.cmd.normal 'v'
+      vim.cmd.normal { args = { 'o' }, bang = true }
+      vim.fn.setpos('.', { 0, 1, 3, 0 })
+      vim.cmd.normal { args = { 'o' }, bang = true }
+
+      vim.cmd.normal { args = { 'o' }, bang = true }
+      local cursor_before = vim.fn.getpos('.')[3]
+
+      Range.from_motion 'aw'
+
+      vim.cmd.normal { args = { 'o' }, bang = true }
+      local cursor_after = vim.fn.getpos('.')[3]
+
+      assert.are_not_same(cursor_before, cursor_after)
+    end)
+  end)
+
+  it('from_motion preserves visual selection orientation (cursor at stop)', function()
+    withbuf({ 'the quick brown fox' }, function()
+      vim.fn.setpos('.', { 0, 1, 3, 0 })
+      vim.cmd.normal 'vll'
+
+      local cursor_before = vim.fn.getpos('.')[3]
+
+      Range.from_motion 'aw'
+
+      vim.cmd.normal { args = { 'o' }, bang = true }
+      local cursor_after = vim.fn.getpos('.')[3]
+
+      assert.are_not_same(cursor_before, cursor_after)
+    end)
+  end)
+
   describe('from_motion with max_lines', function()
     it('returns nil when bracket chars are beyond max_lines', function()
       -- A large block where { and } are far from cursor

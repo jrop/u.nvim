@@ -542,6 +542,7 @@ function Range.from_motion(motion, opts)
   local is_bracket_txtobj = is_txtobj and BRACKET_MAP[motion_rest] ~= nil
 
   -- SECTION: Capture original state for restoration
+  local vinf, vinf_inverted = Range.from_vtext()
   local original_state = {
     winview = vim.fn.winsaveview(),
     unnamed_register = vim.fn.getreg '"',
@@ -551,7 +552,8 @@ function Range.from_motion(motion, opts)
     opfunc = vim.go.operatorfunc,
     prev_captured_range = _G.Range__from_motion_opfunc_captured_range,
     prev_mode = vim.fn.mode(),
-    vinf = Range.from_vtext(),
+    vinf = vinf,
+    vinf_inverted = vinf_inverted,
   }
   --- @type u.Range|nil
   _G.Range__from_motion_opfunc_captured_range = nil
@@ -603,7 +605,9 @@ function Range.from_motion(motion, opts)
   vim.fn.setpos('.', original_state.cursor)
   vim.fn.setpos("'[", original_state.mark_lbracket)
   vim.fn.setpos("']", original_state.mark_rbracket)
-  if original_state.prev_mode ~= 'n' then original_state.vinf:set_visual_selection() end
+  if original_state.prev_mode ~= 'n' then
+    original_state.vinf:set_visual_selection(original_state.vinf_inverted)
+  end
   vim.go.operatorfunc = original_state.opfunc
   _G.Range__from_motion_opfunc_captured_range = original_state.prev_captured_range
 
@@ -663,7 +667,8 @@ end
 function Range.from_vtext()
   local r = Range.from_marks('v', '.')
   if vim.fn.mode() == 'V' then r = r:to_linewise() end
-  return r
+  local inverted = Pos.from_pos '.' ~= r.stop
+  return r, inverted
 end
 
 --- Get range information from the current text range being operated on
@@ -806,18 +811,23 @@ end
 
 function Range:save_to_extmark() return Extmark.from_range(self, NS) end
 
-function Range:set_visual_selection()
+--- @param inverted boolean?
+function Range:set_visual_selection(inverted)
   if self:is_empty() then return end
   if vim.api.nvim_get_current_buf() ~= self.start.bufnr then
     error 'Range:set_visual_selection() called on a buffer other than the current buffer'
   end
 
-  local curr_mode = vim.fn.mode()
-  if curr_mode ~= self.mode then vim.cmd.normal { args = { self.mode }, bang = true } end
+  local curr_mode = vim.fn.mode():sub(1, 1)
+  if curr_mode ~= self.mode then vim.cmd.normal { args = { ESC .. self.mode }, bang = true } end
 
-  self.start:save_to_pos '.'
+  local start, stop = self.start, self.stop
+  if inverted then
+    start, stop = stop, start
+  end
+  start:save_to_pos '.'
   vim.cmd.normal { args = { 'o' }, bang = true }
-  self.stop:save_to_pos '.'
+  stop:save_to_pos '.'
 end
 
 --------------------------------------------------------------------------------
