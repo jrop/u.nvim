@@ -13,6 +13,20 @@ local Range = u.Range
 
 local M = {}
 
+--- The inside of a text object: drop one character from each end, and collapse to an
+--- empty range when the object has no inside.
+--- @param range u.Range|nil
+--- @return u.Range|nil
+local function inner(range)
+  if range == nil or range:is_empty() then return range end
+
+  local stop = assert(range.stop)
+  local start_next = range.start:next(1) or range.start
+  local stop_prev = stop:next(-1)
+  if start_next > stop_prev then return Range.new(start_next) end
+  return range:shrink(1) or range
+end
+
 function M.setup()
   -- Select whole file:
   u.define_txtobj('ag', function() return Range.from_buf_text(0) end)
@@ -33,16 +47,8 @@ function M.setup()
   local function define_quote_obj(q)
     local function select_around() return Range.from_motion('a' .. q) end
 
-    u.define_txtobj('a' .. q, function() return select_around() end)
-    u.define_txtobj('i' .. q, function()
-      local range = select_around()
-      if range == nil or range:is_empty() then return range end
-
-      local start_next = range.start:next(1) or range.start
-      local stop_prev = range.stop:next(-1)
-      if start_next > stop_prev then return Range.new(start_next) end
-      return range:shrink(1) or range
-    end)
+    u.define_txtobj('a' .. q, select_around)
+    u.define_txtobj('i' .. q, function() return inner(select_around()) end)
   end
   define_quote_obj [["]]
   define_quote_obj [[']]
@@ -59,24 +65,17 @@ function M.setup()
       return Range.from_motion('a' .. q)
     end
 
-    u.define_txtobj('al' .. q, function() return select_around() end)
-    u.define_txtobj('il' .. q, function()
-      local range = select_around()
-      if range == nil or range:is_empty() then return range end
-
-      local start_next = range.start:next(1) or range.start
-      local stop_prev = range.stop:next(-1)
-      if start_next > stop_prev then return Range.new(start_next) end
-
-      return range:shrink(1) or range
-    end)
+    u.define_txtobj('al' .. q, select_around)
+    u.define_txtobj('il' .. q, function() return inner(select_around()) end)
   end
   define_last_quote_obj [["]]
   define_last_quote_obj [[']]
   define_last_quote_obj [[`]]
 
   -- Selects the "last" bracket object (searches backward):
-  local function define_last_bracket_obj(b, ...)
+  --- @param keys string[] the bracket to match, followed by any alias key sequences
+  local function define_last_bracket_obj(keys)
+    local b = assert(keys[1])
     local function select_around()
       local curr = Pos.from_pos('.'):find_next(-1, b)
       if not curr then return end
@@ -87,19 +86,14 @@ function M.setup()
       return Range.new(curr, other)
     end
 
-    local keybinds = { ... }
-    table.insert(keybinds, b)
-    for _, k in ipairs(keybinds) do
-      u.define_txtobj('al' .. k, function() return select_around() end)
-      u.define_txtobj('il' .. k, function()
-        local range = select_around()
-        return range and range:shrink(1)
-      end)
+    for _, k in ipairs(keys) do
+      u.define_txtobj('al' .. k, select_around)
+      u.define_txtobj('il' .. k, function() return inner(select_around()) end)
     end
   end
-  define_last_bracket_obj('}', 'B')
-  define_last_bracket_obj ']'
-  define_last_bracket_obj(')', 'b')
-  define_last_bracket_obj '>'
+  define_last_bracket_obj { '}', 'B' }
+  define_last_bracket_obj { ']' }
+  define_last_bracket_obj { ')', 'b' }
+  define_last_bracket_obj { '>' }
 end
 return M

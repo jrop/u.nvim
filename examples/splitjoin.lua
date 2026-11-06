@@ -13,6 +13,7 @@ local M = {}
 --- @param right string
 local function split(bracket_range, left, right)
   local bufnr = bracket_range.start.bufnr
+  local stop = assert(bracket_range.stop)
   local first_line = Range.from_line(bufnr, bracket_range.start.lnum):text()
   local ws = first_line:match '^%s*'
   local expandtab = vim.bo[bufnr].expandtab
@@ -40,7 +41,7 @@ local function split(bracket_range, left, right)
 
   -- Sanity check: if we "skipped" past the start/stop of the overall range, then something is wrong:
   -- This can happen with greater-/less- than signs that are mathematical, and not brackets:
-  while curr > bracket_range.start and curr < bracket_range.stop do
+  while curr > bracket_range.start and curr < stop do
     if vim.tbl_contains({ '{', '[', '(', '<' }, curr:char()) then
       -- skip over bracketed groups:
       local next = curr:find_match()
@@ -65,7 +66,7 @@ local function split(bracket_range, left, right)
   end
 
   -- accumulate last, unfinished item:
-  local pos_before_right = bracket_range.stop:must_next(-1)
+  local pos_before_right = stop:must_next(-1)
   if last_start < pos_before_right then
     local item = vim.trim(Range.new(last_start, pos_before_right):text())
     if item ~= '' then write(item, 1) end
@@ -96,7 +97,7 @@ local function splitjoin()
   local bracket_range = Range.find_nearest_brackets()
   if bracket_range == nil then return end
   local lines = bracket_range:lines()
-  local left = lines[1]:sub(1, 1) -- left bracket
+  local left = assert(lines[1]):sub(1, 1) -- left bracket
   local right = lines[#lines]:sub(-1, -1) -- right bracket
 
   if #lines == 1 then

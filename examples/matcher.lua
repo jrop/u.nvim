@@ -31,8 +31,9 @@ local function update()
 
   clear_highlights()
 
+  local stop = assert(bracket_range.stop)
   local open = Range.new(bracket_range.start, bracket_range.start, 'v')
-  local close = Range.new(bracket_range.stop, bracket_range.stop, 'v')
+  local close = Range.new(stop, stop, 'v')
 
   HIGHLIGHTS = {
     open:highlight('MatchParen', { priority = 999 }),

@@ -667,6 +667,17 @@ describe('Range', function()
     end)
   end)
 
+  it('from_tsquery_caps filters by cursor when opts is empty', function()
+    withbuf({ '-- a comment', '', 'function foo(bar) end' }, function()
+      vim.cmd.setfiletype 'lua'
+      Pos.new(0, 1, 1):save_to_pos '.'
+
+      -- Passing an empty table must not disable the documented cursor filter:
+      local caps = Range.from_tsquery_caps(0, '(function_declaration) @f', {})
+      assert.are.same(0, #(caps.f or {}))
+    end)
+  end)
+
   it('from_tsquery_caps with string array filter', function()
     withbuf({
       '{',
@@ -1377,6 +1388,25 @@ describe('Pos additional coverage', function()
     end)
   end)
 
+  it('invalid positions compare equal across buffers', function()
+    local original = vim.api.nvim_get_current_buf()
+    local buf_a = vim.api.nvim_create_buf(false, true)
+    local buf_b = vim.api.nvim_create_buf(false, true)
+
+    vim.api.nvim_set_current_buf(buf_a)
+    local a = Pos.invalid()
+    vim.api.nvim_set_current_buf(buf_b)
+    local b = Pos.invalid()
+
+    assert.are.same(0, a.bufnr)
+    assert.are.same(a, b)
+    assert.is_true(a:is_invalid())
+
+    vim.api.nvim_set_current_buf(original)
+    vim.api.nvim_buf_delete(buf_a, { force = true })
+    vim.api.nvim_buf_delete(buf_b, { force = true })
+  end)
+
   it('__add with number first', function()
     withbuf({ 'abc' }, function()
       local p = Pos.new(nil, 1, 1)
@@ -1390,6 +1420,23 @@ describe('Pos additional coverage', function()
       local p = Pos.new(nil, 1, 2)
       local result = 1 - p
       assert.are.same(Pos.new(nil, 1, 1), result)
+    end)
+  end)
+
+  it('__add moves several characters', function()
+    withbuf({ 'abcdef' }, function()
+      local p = Pos.new(nil, 1, 1)
+      assert.are.same(Pos.new(nil, 1, 4), p + 3)
+      assert.are.same(p, p + 0)
+      assert.is_nil(Pos.new(nil, 1, 5) + 5)
+    end)
+  end)
+
+  it('__sub moves several characters', function()
+    withbuf({ 'abcdef' }, function()
+      local p = Pos.new(nil, 1, 5)
+      assert.are.same(Pos.new(nil, 1, 3), p - 2)
+      assert.are.same(Pos.new(nil, 1, 3), p + -2)
     end)
   end)
 
@@ -1419,6 +1466,13 @@ describe('Pos additional coverage', function()
       local p = Pos.new(nil, 1, 3) -- '{'
       local match = p:find_match()
       assert.are.same(Pos.new(nil, 1, 5), match) -- '}'
+    end)
+  end)
+
+  it('find_match skips a sibling group before the closing bracket', function()
+    withbuf({ '{(a)b}' }, function()
+      assert.are.same(Pos.new(nil, 1, 6), Pos.new(nil, 1, 1):find_match())
+      assert.are.same(Pos.new(nil, 1, 1), Pos.new(nil, 1, 6):find_match())
     end)
   end)
 
@@ -1838,5 +1892,33 @@ describe('Range highlight', function()
       assert.is_not.same(nil, hl)
       hl.clear()
     end)
+  end)
+end)
+
+describe('examples', function()
+  for _, name in ipairs { 'surround', 'text-objects' } do
+    it(name .. ' can run setup', function()
+      local chunk = assert(loadfile('examples/' .. name .. '.lua'))
+      local example = chunk()
+      local ok, err = pcall(example.setup)
+      assert.is_true(ok, err)
+    end)
+  end
+end)
+
+describe('public API', function()
+  it('exports the same top-level names', function()
+    local names = vim.tbl_keys(require 'u')
+    table.sort(names)
+    assert.are.same({
+      'Extmark',
+      'Pos',
+      'Range',
+      'create_delegated_cmd_args',
+      'define_txtobj',
+      'opkeymap',
+      'repeat_',
+      'ucmd',
+    }, names)
   end)
 end)

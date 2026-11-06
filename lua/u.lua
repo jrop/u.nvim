@@ -6,11 +6,21 @@ local M = {}
 
 local ESC = vim.api.nvim_replace_termcodes('<Esc>', true, false, true)
 local NS = vim.api.nvim_create_namespace 'u.range'
+local EMPTY_RANGE = 'expected a non-empty range'
+
+local OPEN_TO_CLOSE = { ['('] = ')', ['['] = ']', ['{'] = '}', ['<'] = '>' }
+local CLOSE_TO_OPEN = {}
+for open, close in pairs(OPEN_TO_CLOSE) do
+  CLOSE_TO_OPEN[close] = open
+end
 
 --- @param bufnr integer
 --- @param lnum integer 1-based
+--- @return string
 local function line_text(bufnr, lnum)
-  return vim.api.nvim_buf_get_lines(bufnr, lnum - 1, lnum, false)[1]
+  local line = vim.api.nvim_buf_get_lines(bufnr, lnum - 1, lnum, false)[1]
+  assert(line, 'line out of range')
+  return line
 end
 
 --------------------------------------------------------------------------------
@@ -33,10 +43,10 @@ function Pos.__tostring(self)
   end
 end
 
---- @param bufnr? number
---- @param lnum number 1-based
---- @param col number 1-based
---- @param off? number
+--- @param bufnr? integer
+--- @param lnum integer 1-based
+--- @param col integer 1-based
+--- @param off? integer
 --- @return u.Pos
 function Pos.new(bufnr, lnum, col, off)
   if bufnr == nil or bufnr == 0 then bufnr = vim.api.nvim_get_current_buf() end
@@ -50,25 +60,29 @@ function Pos.new(bufnr, lnum, col, off)
   }, Pos)
 end
 
---- @param bufnr? number
---- @param lnum0 number 1-based
---- @param col0 number 1-based
---- @param off? number
+--- @param bufnr? integer
+--- @param lnum0 integer 0-based line index
+--- @param col0 integer 0-based column index
+--- @param off? integer
 function Pos.from00(bufnr, lnum0, col0, off) return Pos.new(bufnr, lnum0 + 1, col0 + 1, off) end
 
---- @param bufnr? number
---- @param lnum0 number 1-based
---- @param col1 number 1-based
---- @param off? number
+--- @param bufnr? integer
+--- @param lnum0 integer 0-based line index
+--- @param col1 integer 1-based column index
+--- @param off? integer
 function Pos.from01(bufnr, lnum0, col1, off) return Pos.new(bufnr, lnum0 + 1, col1, off) end
 
---- @param bufnr? number
---- @param lnum1 number 1-based
---- @param col0 number 1-based
---- @param off? number
+--- @param bufnr? integer
+--- @param lnum1 integer 1-based line index
+--- @param col0 integer 0-based column index
+--- @param off? integer
 function Pos.from10(bufnr, lnum1, col0, off) return Pos.new(bufnr, lnum1, col0 + 1, off) end
 
-function Pos.invalid() return Pos.new(0, 0, 0, 0) end
+function Pos.invalid()
+  --- Built directly instead of through `Pos.new` because `Pos.new` resolves `bufnr = 0`
+  --- to the current buffer, and an invalid position must not be tied to one.
+  return setmetatable({ bufnr = 0, lnum = 0, col = 0, off = 0 }, Pos)
+end
 
 function Pos.__lt(a, b)
   return a.bufnr == b.bufnr and (a.lnum < b.lnum or (a.lnum == b.lnum and a.col < b.col))
@@ -81,23 +95,37 @@ function Pos.__eq(a, b)
     and a.lnum == b.lnum
     and a.col == b.col
 end
-function Pos.__add(x, y)
+--- Moves `x` by `y` characters in `dir`, accepting the number on either side of the
+--- operator. Returns nil for any other operand combination or when the move leaves the
+--- buffer.
+--- @param x u.Pos|number
+--- @param y u.Pos|number
+--- @param dir -1|1
+--- @return u.Pos|nil
+local function shift_pos(x, y, dir)
   if type(x) == 'number' then
     x, y = y, x
   end
   if getmetatable(x) ~= Pos or type(y) ~= 'number' then return nil end
-  return x:next(y)
-end
-function Pos.__sub(x, y)
-  if type(x) == 'number' then
-    x, y = y, x
+
+  local steps = dir * y
+  local step = steps < 0 and -1 or 1
+
+  local pos = x --[[@as u.Pos]]
+  for _ = 1, math.abs(steps) do
+    local next_pos = pos:next(step)
+    if next_pos == nil then return nil end
+    pos = next_pos
   end
-  if getmetatable(x) ~= Pos or type(y) ~= 'number' then return nil end
-  return x:next(-y)
+  return pos
 end
 
---- @param bufnr number
---- @param lnum number
+function Pos.__add(x, y) return shift_pos(x, y, 1) end
+function Pos.__sub(x, y) return shift_pos(x, y, -1) end
+
+--- @param bufnr? integer
+--- @param lnum integer
+--- @return u.Pos
 function Pos.from_eol(bufnr, lnum)
   if bufnr == nil or bufnr == 0 then bufnr = vim.api.nvim_get_current_buf() end
   local pos = Pos.new(bufnr, lnum, 0)
@@ -119,17 +147,16 @@ function Pos:clone() return Pos.new(self.bufnr, self.lnum, self.col, self.off) e
 --- @return boolean
 function Pos:is_col_max() return self.col == vim.v.maxcol end
 
---- Normalize the position to a real position (take into account vim.v.maxcol).
+--- Normalize the position to a real one by clamping `col` to the end of the line.
+--- Vim represents "past the end of line" with `vim.v.maxcol`, so a position carrying
+--- that column stays virtual until it passes through here.
 function Pos:as_real()
-  local maxlen = #line_text(self.bufnr, self.lnum)
-  local col = self.col
-  if col > maxlen then
-    -- We could use utilities in this file to get the given line, but
-    -- since this is a low-level function, we are going to optimize and
-    -- use the API directly:
-    col = maxlen
-  end
-  return Pos.new(self.bufnr, self.lnum, col, self.off)
+  return Pos.new(
+    self.bufnr,
+    self.lnum,
+    math.min(self.col, #line_text(self.bufnr, self.lnum)),
+    self.off
+  )
 end
 
 function Pos:as_vim() return { self.bufnr, self.lnum, self.col, self.off } end
@@ -151,11 +178,7 @@ function Pos:save_to_mark(mark)
 end
 
 --- @return string
-function Pos:char()
-  local line = line_text(self.bufnr, self.lnum)
-  if line == nil then return '' end
-  return line:sub(self.col, self.col)
-end
+function Pos:char() return line_text(self.bufnr, self.lnum):sub(self.col, self.col) end
 
 function Pos:line() return line_text(self.bufnr, self.lnum) end
 
@@ -163,16 +186,15 @@ function Pos:line() return line_text(self.bufnr, self.lnum) end
 --- @param must? boolean
 --- @return u.Pos|nil
 function Pos:next(dir, must)
-  if must == nil then must = false end
+  local function at_edge()
+    if must then error 'error in Pos:next(): Pos:next() returned nil' end
+    return nil
+  end
 
   if dir == nil or dir == 1 then
-    -- Next:
     local num_lines = vim.api.nvim_buf_line_count(self.bufnr)
     local last_line = line_text(self.bufnr, num_lines)
-    if self.lnum == num_lines and self.col == #last_line then
-      if must then error 'error in Pos:next(): Pos:next() returned nil' end
-      return nil
-    end
+    if self.lnum == num_lines and self.col == #last_line then return at_edge() end
 
     local col = self.col + 1
     local line = self.lnum
@@ -182,29 +204,26 @@ function Pos:next(dir, must)
       line = line + 1
     end
     return Pos.new(self.bufnr, line, col, self.off)
-  else
-    -- Previous:
-    if self.col == 1 and self.lnum == 1 then
-      if must then error 'error in Pos:next(): Pos:next() returned nil' end
-      return nil
-    end
-
-    local col = self.col - 1
-    local line = self.lnum
-    local prev_line_max_col = #(line_text(self.bufnr, self.lnum - 1) or '')
-    if col < 1 then
-      col = math.max(prev_line_max_col, 1)
-      line = line - 1
-    end
-    return Pos.new(self.bufnr, line, col, self.off)
   end
+
+  if self.col == 1 and self.lnum == 1 then return at_edge() end
+
+  local col = self.col - 1
+  local line = self.lnum
+  if col < 1 then
+    col = math.max(#line_text(self.bufnr, self.lnum - 1), 1)
+    line = line - 1
+  end
+  return Pos.new(self.bufnr, line, col, self.off)
 end
 
+--- Like `next`, but errors instead of returning nil at the edge of the buffer.
 --- @param dir? -1|1
+--- @return u.Pos
 function Pos:must_next(dir)
-  local next = self:next(dir, true)
-  if next == nil then error 'unreachable' end
-  return next
+  local pos = self:next(dir, true)
+  assert(pos ~= nil, 'unreachable')
+  return pos
 end
 
 --- @param dir -1|1
@@ -240,12 +259,11 @@ end
 
 --- Finds the matching bracket/paren for the current position.
 ---
---- Algorithm: Scans forward (for openers) or backward (for closers) until we find
---- a matching character. When encountering a nested bracket of the same type, we
---- recursively find its match first, then continue scanning. This handles deeply
---- nested structures correctly.
+--- The scan walks in the direction the bracket faces and treats a nested group as one
+--- step, so a sibling group such as the `(a)` in `{(a)b}` is skipped instead of being
+--- scanned again.
 ---
---- @param max_chars? number|nil Safety limit to prevent infinite loops
+--- @param max_chars? integer|nil Safety limit on how many positions the scan may visit
 --- @param invocations? u.Pos[] Tracks positions to prevent infinite recursion
 --- @return u.Pos|nil
 function Pos:find_match(max_chars, invocations)
@@ -255,54 +273,35 @@ function Pos:find_match(max_chars, invocations)
   end
   table.insert(invocations, self)
 
-  local openers = { '{', '[', '(', '<' }
-  local closers = { '}', ']', ')', '>' }
   local c = self:char()
-  local is_opener = vim.tbl_contains(openers, c)
-  local is_closer = vim.tbl_contains(closers, c)
-  if not is_opener and not is_closer then return nil end
+  local c_match = OPEN_TO_CLOSE[c] or CLOSE_TO_OPEN[c]
+  if c_match == nil then return nil end
 
-  local i, _ = vim
-    .iter(is_opener and openers or closers)
-    :enumerate()
-    :find(function(_, c2) return c == c2 end)
-  -- Store the character we will be looking for:
-  local c_match = (is_opener and closers or openers)[i]
+  local is_opener = OPEN_TO_CLOSE[c] ~= nil
+  local dir = is_opener and 1 or -1
 
-  --- @type u.Pos|nil
   local cur = self
-  --- `adv` is a helper that moves the current position backward or forward,
-  --- depending on whether we are looking for an opener or a closer. It returns
-  --- nil if 1) the watch-dog `max_chars` falls bellow 0, or 2) if we have gone
-  --- beyond the beginning/end of the file.
-  --- @return u.Pos|nil
-  local function adv()
-    if cur == nil then return nil end
-
+  while true do
     if max_chars ~= nil then
       max_chars = max_chars - 1
       if max_chars < 0 then return nil end
     end
 
-    return cur:next(is_opener and 1 or -1)
-  end
-
-  -- scan until we find `c_match`:
-  cur = adv()
-  while cur ~= nil and cur:char() ~= c_match do
-    cur = adv()
-    if cur == nil then break end
+    local next_cur = cur:next(dir)
+    if next_cur == nil then return nil end
+    cur = next_cur
 
     local c2 = cur:char()
-    if c2 == c_match then break end
+    if c2 == c_match then return cur end
 
-    if vim.tbl_contains(openers, c2) or vim.tbl_contains(closers, c2) then
-      cur = cur:find_match(max_chars, invocations)
-      cur = adv() -- move past the match
+    -- Skip the whole nested group in one step. Matching a closer scans backward to its
+    -- opener, so the next iteration must advance from that match rather than into it.
+    if (is_opener and OPEN_TO_CLOSE[c2]) or (not is_opener and CLOSE_TO_OPEN[c2]) then
+      local match = cur:find_match(max_chars, invocations)
+      if match == nil then return nil end
+      cur = match
     end
   end
-
-  return cur
 end
 
 --- @param lines string|string[]
@@ -446,10 +445,9 @@ function Range.new(start, stop, mode)
     start, stop = stop, start
   end
 
-  local r = { start = start, stop = stop, mode = mode or 'v' }
-
-  setmetatable(r, Range)
-  return r
+  -- `u.Range` is the class of the module table (methods and statics), so the instance
+  -- shape is asserted here, where the metatable makes it true:
+  return setmetatable({ start = start, stop = stop, mode = mode or 'v' }, Range) --[[@as u.Range]]
 end
 
 --- @param ranges (u.Range|nil)[]
@@ -460,9 +458,13 @@ function Range.smallest(ranges)
 
   -- find smallest match
   local smallest = ranges[1]
+  local smallest_stop = assert(smallest.stop, EMPTY_RANGE)
   for _, r in ipairs(ranges) do
-    local start, stop = r.start, r.stop
-    if start > smallest.start and stop < smallest.stop then smallest = r end
+    local stop = assert(r.stop, EMPTY_RANGE)
+    if r.start > smallest.start and stop < smallest_stop then
+      smallest = r
+      smallest_stop = stop
+    end
   end
   return smallest
 end
@@ -485,7 +487,7 @@ function Range.from_marks(lpos, rpos)
   return Range.new(start, stop, mode)
 end
 
---- @param bufnr? number
+--- @param bufnr? integer
 function Range.from_buf_text(bufnr)
   if bufnr == nil or bufnr == 0 then bufnr = vim.api.nvim_get_current_buf() end
   local num_lines = vim.api.nvim_buf_line_count(bufnr)
@@ -495,13 +497,13 @@ function Range.from_buf_text(bufnr)
   return Range.new(start, stop, 'V')
 end
 
---- @param bufnr? number
---- @param line number 1-based line index
+--- @param bufnr? integer
+--- @param line integer 1-based line index
 function Range.from_line(bufnr, line) return Range.from_lines(bufnr, line, line) end
 
---- @param bufnr? number
---- @param start_line number based line index
---- @param stop_line number based line index
+--- @param bufnr? integer
+--- @param start_line integer 1-based line index
+--- @param stop_line integer 1-based line index; negative counts from the end
 function Range.from_lines(bufnr, start_line, stop_line)
   if bufnr == nil or bufnr == 0 then bufnr = vim.api.nvim_get_current_buf() end
   if stop_line < 0 then
@@ -524,128 +526,175 @@ local BRACKET_MAP = {
   ['>'] = '<',
 }
 
---- @param motion string
---- @param opts? { bufnr?: number, contains_cursor?: boolean, pos?: u.Pos, user_defined?: boolean, max_lines?: number, max_col?: number }
---- @return u.Range|nil
-function Range.from_motion(motion, opts)
-  -- SECTION: Normalize options
-  opts = opts or {}
-  if opts.bufnr == nil or opts.bufnr == 0 then opts.bufnr = vim.api.nvim_get_current_buf() end
-  if opts.contains_cursor == nil then opts.contains_cursor = false end
-  if opts.user_defined == nil then opts.user_defined = false end
+local QUOTE_MAP = { ["'"] = true, ['"'] = true, ['`'] = true }
 
-  -- SECTION: Parse motion string
-  --- @type 'a'|'i', string
-  local scope, motion_rest = motion:sub(1, 1), motion:sub(2)
-  local is_txtobj = scope == 'a' or scope == 'i'
-  local is_quote_txtobj = is_txtobj and vim.tbl_contains({ "'", '"', '`' }, motion_rest)
-  local is_bracket_txtobj = is_txtobj and BRACKET_MAP[motion_rest] ~= nil
+--- The editor state that running a motion can disturb, saved so it can be put back.
+--- @class u._MotionState
+--- @field winview table
+--- @field unnamed_register string
+--- @field cursor integer[]
+--- @field mark_lbracket integer[]
+--- @field mark_rbracket integer[]
+--- @field opfunc string
+--- @field prev_captured_range u.Range|nil
+--- @field prev_mode string
+--- @field vinf u.Range
+--- @field vinf_inverted boolean
 
-  -- SECTION: Capture original state for restoration
+--- The range captured by the most recent `g@` invocation. Vim can only reach a global
+--- function by name, so the one global below is defined at module scope and writes this
+--- local; ordinary code reads the local.
+--- @type u.Range|nil
+local captured_range = nil
+
+--- @param ty 'line'|'char'|'block'
+function _G.Range__from_motion_opfunc(ty) captured_range = Range.from_op_func(ty) end
+
+--- @return u._MotionState
+local function capture_editor_state()
   local vinf, vinf_inverted = Range.from_vtext()
-  local original_state = {
+  return {
     winview = vim.fn.winsaveview(),
     unnamed_register = vim.fn.getreg '"',
     cursor = vim.fn.getpos '.',
     mark_lbracket = vim.fn.getpos "'[",
     mark_rbracket = vim.fn.getpos "']",
-    opfunc = vim.go.operatorfunc,
-    prev_captured_range = _G.Range__from_motion_opfunc_captured_range,
+    -- `operatorfunc` is a string option; the analyzer widens it to `string|function`
+    -- because some options accept function values.
+    opfunc = vim.go.operatorfunc --[[@as string]],
+    prev_captured_range = captured_range,
     prev_mode = vim.fn.mode(),
     vinf = vinf,
     vinf_inverted = vinf_inverted,
   }
-  --- @type u.Range|nil
-  _G.Range__from_motion_opfunc_captured_range = nil
+end
 
-  -- SECTION: Execute motion and capture result
-  vim.api.nvim_buf_call(opts.bufnr, function()
-    if opts.pos ~= nil then opts.pos:save_to_pos '.' end
+--- @param state u._MotionState
+local function restore_editor_state(state)
+  vim.fn.winrestview(state.winview)
+  vim.fn.setreg('"', state.unnamed_register)
+  vim.fn.setpos('.', state.cursor)
+  vim.fn.setpos("'[", state.mark_lbracket)
+  vim.fn.setpos("']", state.mark_rbracket)
+  if state.prev_mode ~= 'n' then state.vinf:set_visual_selection(state.vinf_inverted) end
+  vim.go.operatorfunc = state.opfunc
+  captured_range = state.prev_captured_range
+end
 
-    -- Pre-check: skip expensive g@ when target char not found within bounds
-    if
-      (is_bracket_txtobj or is_quote_txtobj)
-      and type(opts.max_lines) == 'number'
-      and opts.max_lines > 0
-    then
-      local cur = vim.fn.line '.'
-      local line_start = math.max(1, cur - opts.max_lines)
-      local line_end = math.min(vim.api.nvim_buf_line_count(opts.bufnr), cur + opts.max_lines)
-      local chunk = vim.api.nvim_buf_get_lines(opts.bufnr, line_start - 1, line_end, false)
-      local target = is_bracket_txtobj and BRACKET_MAP[motion_rest] or motion_rest
-      local max_col = opts.max_col
-      local found = false
-      for _, line in ipairs(chunk) do
-        local pos = line:find(target, 1, true)
-        if pos and (max_col == nil or pos <= max_col) then
-          found = true
-          break
-        end
-      end
-      if not found then return end
-    end
+--- @class u.MotionOpts
+--- @field bufnr? integer
+--- @field contains_cursor? boolean
+--- @field pos? u.Pos
+--- @field user_defined? boolean
+--- @field max_lines? integer
+--- @field max_col? integer
 
-    _G.Range__from_motion_opfunc = function(ty)
-      _G.Range__from_motion_opfunc_captured_range = Range.from_op_func(ty)
-    end
+--- Whether `target` occurs inside the window described by the bounds, i.e. whether the
+--- expensive `g@` invocation can possibly find the text object. Returns true when the
+--- motion has no single-character target or when no bounds are configured.
+--- @param target string|nil
+--- @param bufnr integer
+--- @param max_lines integer|nil
+--- @param max_col integer|nil
+--- @return boolean
+local function target_within_bounds(target, bufnr, max_lines, max_col)
+  if target == nil then return true end
+  if max_lines == nil or max_lines <= 0 then return true end
+
+  local cur = vim.fn.line '.'
+  local line_start = cur - max_lines
+  if line_start < 1 then line_start = 1 end
+  local last_line = vim.api.nvim_buf_line_count(bufnr)
+  local line_end = cur + max_lines
+  if line_end > last_line then line_end = last_line end
+
+  local chunk = vim.api.nvim_buf_get_lines(bufnr, line_start - 1, line_end, false)
+  for _, line in ipairs(chunk) do
+    local pos = line:find(target, 1, true)
+    if pos and (max_col == nil or pos <= max_col) then return true end
+  end
+  return false
+end
+
+--- @param motion string
+--- @param opts? u.MotionOpts
+--- @return u.Range|nil
+function Range.from_motion(motion, opts)
+  local o = opts or {}
+  local bufnr = o.bufnr
+  if bufnr == nil or bufnr == 0 then bufnr = vim.api.nvim_get_current_buf() end
+  local contains_cursor = o.contains_cursor == true
+  local user_defined = o.user_defined == true
+
+  local scope, motion_rest = motion:sub(1, 1), motion:sub(2)
+  local is_txtobj = scope == 'a' or scope == 'i'
+  local is_quote_txtobj = is_txtobj and QUOTE_MAP[motion_rest] == true
+  local is_bracket_txtobj = is_txtobj and BRACKET_MAP[motion_rest] ~= nil
+  -- Only text objects have a single character that the pre-check can look for:
+  local target = (is_bracket_txtobj and BRACKET_MAP[motion_rest])
+    or (is_quote_txtobj and motion_rest)
+    or nil
+
+  local state = capture_editor_state()
+  captured_range = nil
+
+  vim.api.nvim_buf_call(bufnr, function()
+    if o.pos ~= nil then o.pos:save_to_pos '.' end
+    if not target_within_bounds(target, bufnr, o.max_lines, o.max_col) then return end
+
     local old_eventignore = vim.o.eventignore
     vim.o.eventignore = 'all'
     vim.go.operatorfunc = 'v:lua.Range__from_motion_opfunc'
-    vim.cmd(
-      'keepjumps normal' .. (not opts.user_defined and '!' or '') .. ' ' .. ESC .. 'g@' .. motion,
-      { mods = { silent = true } }
-    )
+    vim.cmd {
+      cmd = 'normal',
+      args = { ESC .. 'g@' .. motion },
+      bang = not user_defined,
+      mods = { keepjumps = true, silent = true },
+    }
     vim.o.eventignore = old_eventignore
   end)
-  local captured_range = _G.Range__from_motion_opfunc_captured_range
+  local result = captured_range
 
-  -- SECTION: Restore state
-  vim.fn.winrestview(original_state.winview)
-  vim.fn.setreg('"', original_state.unnamed_register)
-  vim.fn.setpos('.', original_state.cursor)
-  vim.fn.setpos("'[", original_state.mark_lbracket)
-  vim.fn.setpos("']", original_state.mark_rbracket)
-  if original_state.prev_mode ~= 'n' then
-    original_state.vinf:set_visual_selection(original_state.vinf_inverted)
-  end
-  vim.go.operatorfunc = original_state.opfunc
-  _G.Range__from_motion_opfunc_captured_range = original_state.prev_captured_range
+  restore_editor_state(state)
 
-  if not captured_range then return nil end
+  if not result then return nil end
 
-  -- SECTION: Fixup edge cases (quote text objects, 'it' tag)
+  local stop = assert(result.stop, EMPTY_RANGE)
+
+  -- Vim reports text-object bounds inconsistently, so correct the known cases:
   if
     -- I have no idea why, but when yanking `i"`, the stop-mark is
     -- placed on the ending quote. For other text-objects, the stop-
     -- mark is placed before the closing character.
-    (is_quote_txtobj and scope == 'i' and captured_range.stop:char() == motion_rest)
+    (is_quote_txtobj and scope == 'i' and stop:char() == motion_rest)
     -- *Sigh*, this also sometimes happens for `it` as well.
-    or (motion == 'it' and captured_range.stop:char() == '<')
+    or (motion == 'it' and stop:char() == '<')
   then
-    captured_range.stop = captured_range.stop:next(-1) or captured_range.stop
+    stop = stop:next(-1) or stop
+    result.stop = stop
   end
   if is_quote_txtobj and scope == 'a' then
-    captured_range.start = captured_range.start:find_next(1, motion_rest) or captured_range.start
-    captured_range.stop = captured_range.stop:find_next(-1, motion_rest) or captured_range.stop
+    result.start = result.start:find_next(1, motion_rest) or result.start
+    stop = stop:find_next(-1, motion_rest) or stop
+    result.stop = stop
   end
 
-  -- SECTION: Validate cursor containment
-  if
-    opts.contains_cursor and not captured_range:contains(Pos.new(unpack(original_state.cursor)))
-  then
-    return nil
-  end
+  -- The motion can land outside the cursor, for example on a neighboring line:
+  if contains_cursor and not result:contains(Pos.new(unpack(state.cursor))) then return nil end
 
-  return captured_range
+  return result
 end
 
---- @param opts? { contains_cursor?: boolean }
+--- @param bufnr? integer
+--- @param query string
+--- @param opts? { contains_cursor?: boolean } Defaults to filtering captures by the cursor.
 function Range.from_tsquery_caps(bufnr, query, opts)
-  opts = opts or { contains_cursor = true }
+  local o = opts or {}
+  local contains_cursor = o.contains_cursor ~= false
 
   local ranges = Range.from_buf_text(bufnr):tsquery(query)
   if not ranges then return end
-  if not opts.contains_cursor then return ranges end
+  if not contains_cursor then return ranges end
 
   local cursor = Pos.from_pos '.'
   return vim.tbl_map(function(cap_ranges)
@@ -684,7 +733,7 @@ function Range.from_op_func(type)
 end
 
 --- Get range information from command arguments.
---- @param args unknown
+--- @param args u.utils.RawCmdArgs
 --- @return u.Range|nil
 function Range.from_cmd_args(args)
   if args.range == 0 then return nil end
@@ -695,40 +744,38 @@ function Range.from_cmd_args(args)
   end
 
   local is_visual = vim.fn.histget('cmd', -1):sub(1, 5) == [['<,'>]]
-  --- @type 'v'|'V'
-  local mode = is_visual and vim.fn.visualmode() or 'V'
-
   if is_visual then
+    local mode = vim.fn.visualmode() == 'V' and 'V' or 'v'
     return Range.new(Pos.from_pos "'<", Pos.from_pos "'>", mode)
-  else
-    return Range.new(Pos.new(bufnr, args.line1, 1), Pos.new(bufnr, args.line2, vim.v.maxcol), mode)
   end
+  return Range.new(Pos.new(bufnr, args.line1, 1), Pos.new(bufnr, args.line2, vim.v.maxcol), 'V')
 end
 
---- @param opts? { max_lines?: number, max_col?: number }
+--- @class u.NearestOpts
+--- @field max_lines? integer
+--- @field max_col? integer
+
+--- @param motions string[]
+--- @param opts? u.NearestOpts
 --- @return u.Range|nil
-function Range.find_nearest_brackets(opts)
-  opts = opts or {}
-  local copts = { contains_cursor = true, max_lines = opts.max_lines, max_col = opts.max_col }
-  return Range.smallest {
-    Range.from_motion('a<', copts),
-    Range.from_motion('a[', copts),
-    Range.from_motion('a(', copts),
-    Range.from_motion('a{', copts),
-  }
+local function find_nearest(motions, opts)
+  local o = opts or {}
+  local copts = { contains_cursor = true, max_lines = o.max_lines, max_col = o.max_col }
+
+  local ranges = {}
+  for i, motion in ipairs(motions) do
+    ranges[i] = Range.from_motion(motion, copts)
+  end
+  return Range.smallest(ranges)
 end
 
---- @param opts? { max_lines?: number, max_col?: number }
+--- @param opts? u.NearestOpts
 --- @return u.Range|nil
-function Range.find_nearest_quotes(opts)
-  opts = opts or {}
-  local copts = { contains_cursor = true, max_lines = opts.max_lines, max_col = opts.max_col }
-  return Range.smallest {
-    Range.from_motion([[a']], copts),
-    Range.from_motion([[a"]], copts),
-    Range.from_motion([[a`]], copts),
-  }
-end
+function Range.find_nearest_brackets(opts) return find_nearest({ 'a<', 'a[', 'a(', 'a{' }, opts) end
+
+--- @param opts? u.NearestOpts
+--- @return u.Range|nil
+function Range.find_nearest_quotes(opts) return find_nearest({ [[a']], [[a"]], [[a`]] }, opts) end
 
 --------------------------------------------------------------------------------
 -- Structural utilities:
@@ -760,9 +807,14 @@ end
 --- @param x u.Pos | u.Range
 function Range:contains(x)
   if getmetatable(x) == Pos then
-    return not self:is_empty() and x >= self.start and x <= self.stop
+    local pos = x --[[@as u.Pos]]
+    local stop = self.stop
+    return stop ~= nil and pos >= self.start and pos <= stop
   elseif getmetatable(x) == Range then
-    return self:contains(x.start) and self:contains(x.stop)
+    local other = x --[[@as u.Range]]
+    local stop = other.stop
+    if stop == nil then return false end
+    return self:contains(other.start) and self:contains(stop)
   end
   return false
 end
@@ -775,21 +827,22 @@ function Range:difference(other)
     outer, inner = inner, outer
   end
   if not outer:contains(inner) then return nil, nil end
+  local outer_stop = assert(outer.stop, EMPTY_RANGE)
+  local inner_stop = assert(inner.stop, EMPTY_RANGE)
 
   local left
   if outer.start ~= inner.start then
-    local stop = inner.start:clone() - 1
-    left = Range.new(outer.start, stop)
+    left = Range.new(outer.start, inner.start:clone():next(-1))
   else
     left = Range.new(outer.start) -- empty range
   end
 
   local right
-  if inner.stop ~= outer.stop then
-    local start = inner.stop:clone() + 1
-    right = Range.new(start, outer.stop)
+  if inner_stop ~= outer_stop then
+    local start = assert(inner_stop:clone():next(1))
+    right = Range.new(start, outer_stop)
   else
-    right = Range.new(inner.stop) -- empty range
+    right = Range.new(inner_stop) -- empty range
   end
 
   return left, right
@@ -798,15 +851,17 @@ end
 --- @param left string
 --- @param right string
 function Range:save_to_pos(left, right)
-  self.start:save_to_pos(left);
-  (self:is_empty() and self.start or self.stop):save_to_pos(right)
+  self.start:save_to_pos(left)
+  local last = self.stop or self.start
+  last:save_to_pos(right)
 end
 
 --- @param left string
 --- @param right string
 function Range:save_to_marks(left, right)
-  self.start:save_to_mark(left);
-  (self:is_empty() and self.start or self.stop):save_to_mark(right)
+  self.start:save_to_mark(left)
+  local last = self.stop or self.start
+  last:save_to_mark(right)
 end
 
 function Range:save_to_extmark() return Extmark.from_range(self, NS) end
@@ -821,7 +876,7 @@ function Range:set_visual_selection(inverted)
   local curr_mode = vim.fn.mode():sub(1, 1)
   if curr_mode ~= self.mode then vim.cmd.normal { args = { ESC .. self.mode }, bang = true } end
 
-  local start, stop = self.start, self.stop
+  local start, stop = self.start, assert(self.stop, EMPTY_RANGE)
   if inverted then
     start, stop = stop, start
   end
@@ -842,7 +897,8 @@ function Range:tsquery(query)
   if lang == nil then return end
   local parser = vim.treesitter.get_parser(bufnr, lang)
   if parser == nil then return end
-  local tree = parser:parse()[1]
+  local trees = parser:parse()
+  local tree = trees and trees[1]
   if tree == nil then return end
 
   local root = tree:root()
@@ -858,9 +914,8 @@ function Range:tsquery(query)
       Pos.new(bufnr, stop_row0 + 1, stop_col0),
       'v'
     )
-    if range.stop.lnum > vim.api.nvim_buf_line_count(bufnr) then
-      range.stop = range.stop:must_next(-1)
-    end
+    local stop = assert(range.stop, EMPTY_RANGE)
+    if stop.lnum > vim.api.nvim_buf_line_count(bufnr) then range.stop = stop:must_next(-1) end
 
     local capture_name = q.captures[id]
     if not ranges[capture_name] then ranges[capture_name] = {} end
@@ -870,73 +925,94 @@ function Range:tsquery(query)
   return ranges
 end
 
-function Range:length()
-  if self:is_empty() then return 0 end
+--- The per-line bounds of the range, as reported by `getregionpos`: one `{ start, stop }`
+--- pair per line. The geometry is fetched once so that callers needing several offsets,
+--- such as `sub`, do not walk the region again for each one.
+--- @return integer[][][]
+function Range:line_spans()
+  local stop = assert(self.stop, EMPTY_RANGE)
+  return vim.fn.getregionpos(self.start:as_real():as_vim(), stop:as_real():as_vim(), { type = 'v' })
+end
 
-  local line_positions =
-    vim.fn.getregionpos(self.start:as_real():as_vim(), self.stop:as_real():as_vim(), { type = 'v' })
+--- @param bounds integer[][]
+--- @return integer lnum, integer col, integer len
+local function span_at(bounds)
+  local start = assert(bounds[1])
+  local stop = assert(bounds[2])
+  local col = assert(start[3])
+  return assert(start[2]), col, assert(stop[3]) - col + 1
+end
 
-  local len = 0
-  for linenr, line in ipairs(line_positions) do
-    if linenr > 1 then len = len + 1 end -- each newline is counted as a char
-    local line_start_col = line[1][3]
-    local line_stop_col = line[2][3]
-    local line_len = line_stop_col - line_start_col + 1
+--- @param spans integer[][][]
+--- @return integer
+local function spans_length(spans)
+  if #spans == 0 then return 0 end
+
+  local len = #spans - 1 -- one newline between each pair of lines
+  for _, bounds in ipairs(spans) do
+    local _, _, line_len = span_at(bounds)
     len = len + line_len
   end
   return len
 end
 
+function Range:length()
+  if self:is_empty() then return 0 end
+  return spans_length(self:line_spans())
+end
+
 function Range:line_count()
   if self:is_empty() then return 0 end
-  return self.stop.lnum - self.start.lnum + 1
+  local stop = assert(self.stop, EMPTY_RANGE)
+  return stop.lnum - self.start.lnum + 1
 end
 
-function Range:trim_start()
-  if self:is_empty() then return end
+--- Trims whitespace from one end of a copy of the range.
+--- @param dir -1|1 `1` trims the start, `-1` trims the stop
+--- @return u.Range|nil
+function Range:_trim(dir)
+  if self:is_empty() then return nil end
 
   local r = self:clone()
-  while r.start:char():match '%s' do
-    local next = r.start:next(1)
+  local pos = dir == 1 and r.start or assert(r.stop)
+  while pos:char():match '%s' do
+    local next = pos:next(dir)
     if next == nil then break end
-    r.start = next
+    pos = next
+  end
+
+  if dir == 1 then
+    r.start = pos
+  else
+    r.stop = pos
   end
   return r
 end
 
-function Range:trim_stop()
-  if self:is_empty() then return end
+--- @return u.Range|nil
+function Range:trim_start() return self:_trim(1) end
 
-  local r = self:clone()
-  while r.stop:char():match '%s' do
-    local next = r.stop:next(-1)
-    if next == nil then break end
-    r.stop = next
-  end
-  return r
-end
+--- @return u.Range|nil
+function Range:trim_stop() return self:_trim(-1) end
 
---- @param i number 1-based
---- @param j? number 1-based
+--- @param i integer 1-based
+--- @param j? integer 1-based
 function Range:sub(i, j)
-  local line_positions =
-    vim.fn.getregionpos(self.start:as_real():as_vim(), self.stop:as_real():as_vim(), { type = 'v' })
+  local spans = self:line_spans()
 
-  --- @param idx number 1-based
+  --- @param idx integer 1-based
   --- @return u.Pos|nil
   local function get_pos(idx)
-    if idx < 0 then return get_pos(self:length() + idx + 1) end
+    if idx < 0 then return get_pos(spans_length(spans) + idx + 1) end
 
-    -- find the position of the first line that contains the i-th character:
+    -- find the position of the first line that contains the idx-th character:
     local curr_len = 0
-    for linenr, line in ipairs(line_positions) do
+    for linenr, bounds in ipairs(spans) do
+      local lnum, col, line_len = span_at(bounds)
       if linenr > 1 then curr_len = curr_len + 1 end -- each newline is counted as a char
-      local line_start_col = line[1][3]
-      local line_stop_col = line[2][3]
-      local line_len = line_stop_col - line_start_col + 1
 
       if curr_len + line_len >= idx then
-        return Pos.new(self.start.bufnr, line[1][2], line_start_col + (idx - curr_len) - 1)
+        return Pos.new(self.start.bufnr, lnum, col + (idx - curr_len) - 1)
       end
       curr_len = curr_len + line_len
     end
@@ -960,24 +1036,30 @@ end
 --- @return string[]
 function Range:lines()
   if self:is_empty() then return {} end
-  return vim.fn.getregion(self.start:as_vim(), self.stop:as_vim(), { type = self.mode })
+  local stop = assert(self.stop, EMPTY_RANGE)
+  return vim.fn.getregion(self.start:as_vim(), stop:as_vim(), { type = self.mode })
 end
 
 --- @return string
 function Range:text() return vim.fn.join(self:lines(), '\n') end
 
---- @param l number
+--- @param l integer
+--- @return u.Range|nil
 function Range:line(l)
   if l < 0 then l = self:line_count() + l + 1 end
-  if l > self:line_count() then return end
+  if l < 1 or l > self:line_count() then return end
 
+  -- `line` works from the range's own mode and raw columns: `line_spans` normalizes to
+  -- charwise geometry, which would clamp a column on an empty line down to zero.
+  local range_stop = assert(self.stop, EMPTY_RANGE)
   local line_indices =
-    vim.fn.getregionpos(self.start:as_vim(), self.stop:as_vim(), { type = self.mode })
-  local line_bounds = line_indices[l]
+    vim.fn.getregionpos(self.start:as_vim(), range_stop:as_vim(), { type = self.mode })
+  -- `getregionpos` returns one entry per line for a valid range:
+  local line_bounds = assert(line_indices[l], 'missing bounds for range line')
 
   local start = Pos.new(unpack(line_bounds[1]))
-  local stop = Pos.new(unpack(line_bounds[2]))
-  return Range.new(start, stop)
+  local line_end = Pos.new(unpack(line_bounds[2]))
+  return Range.new(start, line_end)
 end
 
 --- @param replacement nil|string|string[]
@@ -986,7 +1068,7 @@ function Range:replace(replacement)
   if type(replacement) == 'string' then replacement = vim.fn.split(replacement, '\n') end
 
   local bufnr = self.start.bufnr
-  local replace_type = (self:is_empty() and 'insert') or (self.mode == 'v' and 'region') or 'lines'
+  local empty = self:is_empty()
 
   local function update_stop_non_linewise()
     local new_last_line_num = self.start.lnum + #replacement - 1
@@ -1001,12 +1083,13 @@ function Range:replace(replacement)
       self.stop = nil
     else
       local new_last_line_num = self.start.lnum - 1 + #replacement - 1
-      self.stop = Pos.new(bufnr, new_last_line_num + 1, vim.v.maxcol, self.stop.off)
+      local stop = assert(self.stop, EMPTY_RANGE)
+      self.stop = Pos.new(bufnr, new_last_line_num + 1, vim.v.maxcol, stop.off)
     end
     self.mode = 'v'
   end
 
-  if replace_type == 'insert' then
+  if empty then
     -- To insert text at a given `(row, column)` location, use `start_row =
     -- end_row = row` and `start_col = end_col = col`.
     vim.api.nvim_buf_set_text(
@@ -1018,31 +1101,28 @@ function Range:replace(replacement)
       replacement
     )
     update_stop_non_linewise()
-  elseif replace_type == 'region' then
-    -- Fixup the bounds:
-    local max_col = #self.stop:line()
-
+  elseif self.mode ~= 'v' then
+    -- Indexing is zero-based, end-exclusive.
+    local stop = assert(self.stop, EMPTY_RANGE)
+    vim.api.nvim_buf_set_lines(bufnr, self.start.lnum - 1, stop.lnum, true, replacement)
+    update_stop_linewise()
+  else
     -- Indexing is zero-based. Row indices are end-inclusive, and column indices
     -- are end-exclusive.
+    local stop = assert(self.stop, EMPTY_RANGE)
     vim.api.nvim_buf_set_text(
       bufnr,
       self.start.lnum - 1,
       self.start.col - 1,
-      self.stop.lnum - 1,
-      math.min(self.stop.col, max_col),
+      stop.lnum - 1,
+      math.min(stop.col, #stop:line()),
       replacement
     )
     update_stop_non_linewise()
-  elseif replace_type == 'lines' then
-    -- Indexing is zero-based, end-exclusive.
-    vim.api.nvim_buf_set_lines(bufnr, self.start.lnum - 1, self.stop.lnum, true, replacement)
-    update_stop_linewise()
-  else
-    error 'unreachable'
   end
 end
 
---- @param amount number
+--- @param amount integer
 function Range:shrink(amount)
   local start = self.start
   local stop = self.stop
@@ -1060,7 +1140,7 @@ function Range:shrink(amount)
   return Range.new(start, stop, self.mode)
 end
 
---- @param amount number
+--- @param amount integer
 function Range:must_shrink(amount)
   local shrunk = self:shrink(amount)
   if shrunk == nil or shrunk:is_empty() then
@@ -1069,41 +1149,47 @@ function Range:must_shrink(amount)
   return shrunk
 end
 
+--- @class u.HighlightOpts
+--- @field timeout? integer
+--- @field priority? integer
+--- @field on_macro? boolean
+
 --- @param group string
---- @param opts? { timeout?: number, priority?: number, on_macro?: boolean }
+--- @param opts? u.HighlightOpts
 --- @return { ns: integer, clear: fun() }
 function Range:highlight(group, opts)
-  if self:is_empty() then return { ns = 0, clear = function() end } end
-
-  opts = opts or { on_macro = false }
-  if opts.on_macro == nil then opts.on_macro = false end
+  local o = opts or {}
+  local on_macro = o.on_macro == true
 
   local in_macro = vim.fn.reg_executing() ~= ''
-  if not opts.on_macro and in_macro then return { ns = 0, clear = function() end } end
+  if self:is_empty() or (in_macro and not on_macro) then
+    return { ns = 0, clear = function() end }
+  end
 
+  local stop = assert(self.stop, EMPTY_RANGE)
   local ns = vim.api.nvim_create_namespace ''
+  local winview = not in_macro and vim.fn.winsaveview()
 
-  local winview = vim.fn.winsaveview()
   vim.hl.range(
     self.start.bufnr,
     ns,
     group,
     { self.start.lnum - 1, self.start.col - 1 },
-    { self.stop.lnum - 1, self.stop.col - 1 },
+    { stop.lnum - 1, stop.col - 1 },
     {
       inclusive = true,
-      priority = opts.priority,
-      timeout = opts.timeout,
+      priority = o.priority,
+      timeout = o.timeout,
       regtype = self.mode,
     }
   )
-  if not in_macro then vim.fn.winrestview(winview) end
+  if winview then vim.fn.winrestview(winview) end
   vim.cmd.redraw()
 
   return {
     ns = ns,
     clear = function()
-      vim.api.nvim_buf_clear_namespace(self.start.bufnr, ns, self.start.lnum - 1, self.stop.lnum)
+      vim.api.nvim_buf_clear_namespace(self.start.bufnr, ns, self.start.lnum - 1, stop.lnum)
       vim.cmd.redraw()
     end,
   }
@@ -1116,7 +1202,7 @@ end
 -- NOTE: These must be global because Neovim's 'operatorfunc' option only
 -- accepts VimScript expressions (v:lua.FunctionName), not direct Lua
 -- references. This is a Neovim API limitation.
---- @type fun(range: u.Range): nil|(fun():any)
+--- @type (fun(range: u.Range): nil|(fun():any))|nil
 local __U__OpKeymapOpFunc_rhs = nil
 
 --- This is the global utility function used for operatorfunc in opkeymap
@@ -1138,7 +1224,6 @@ end
 --- @param mode string|string[]
 --- @param lhs string
 --- @param rhs fun(range: u.Range): nil
---- @diagnostic disable-next-line: undefined-doc-name
 --- @param opts? vim.keymap.set.Opts
 local function opkeymap(mode, lhs, rhs, opts)
   vim.keymap.set(mode, lhs, function()
@@ -1153,15 +1238,13 @@ local function opkeymap(mode, lhs, rhs, opts)
 end
 
 --------------------------------------------------------------------------------
--- txtobj
+-- Text objects
 --------------------------------------------------------------------------------
-
-local txtobj = {}
 
 --- @param key_seq string
 --- @param fn fun(key_seq: string):u.Range|nil
---- @param opts? { buffer: number|nil }
-function txtobj.define(key_seq, fn, opts)
+--- @param opts? { buffer?: integer }
+local function define_txtobj(key_seq, fn, opts)
   if opts ~= nil and opts.buffer == 0 then opts.buffer = vim.api.nvim_get_current_buf() end
 
   local function handle_visual()
@@ -1203,16 +1286,16 @@ end
 local repeat_ = {}
 
 local IS_REPEATING = false
---- @type function|nil
+--- @type fun()|nil
 local REPEAT_ACTION = nil
 
 local function is_repeatable_last_mutator() return vim.b.changedtick <= (vim.b.my_changedtick or 0) end
 
 --- @param f fun()
 function repeat_.run_repeatable(f)
-  REPEAT_ACTION = f
-  ---@diagnostic disable-next-line: need-check-nil
-  REPEAT_ACTION()
+  local action = f
+  REPEAT_ACTION = action
+  action()
   vim.b.my_changedtick = vim.b.changedtick
 end
 
@@ -1222,8 +1305,9 @@ function repeat_.setup()
   vim.keymap.set('n', '.', function()
     IS_REPEATING = true
     for _ = 1, vim.v.count1 do
-      if is_repeatable_last_mutator() and type(REPEAT_ACTION) == 'function' then
-        repeat_.run_repeatable(REPEAT_ACTION)
+      local action = REPEAT_ACTION
+      if is_repeatable_last_mutator() and action ~= nil then
+        repeat_.run_repeatable(action)
       else
         vim.cmd { cmd = 'normal', args = { '.' }, bang = true }
       end
@@ -1240,29 +1324,23 @@ function repeat_.setup()
 end
 
 --------------------------------------------------------------------------------
--- utils
+-- User commands
 --------------------------------------------------------------------------------
 
-local utils = {}
-
---
--- Types
---
-
 --- @class u.utils.QfItem
---- @field col number
+--- @field col integer
 --- @field filename string
 --- @field kind string
---- @field lnum number
+--- @field lnum integer
 --- @field text string
 
 --- @class u.utils.RawCmdArgs
 --- @field args string
 --- @field bang boolean
---- @field count number
+--- @field count integer
 --- @field fargs string[]
---- @field line1 number
---- @field line2 number
+--- @field line1 integer
+--- @field line2 integer
 --- @field mods string
 --- @field name string
 --- @field range 0|1|2
@@ -1274,8 +1352,8 @@ local utils = {}
 
 --- @class u.utils.UcmdArgs
 --- @field nargs? 0|1|'*'|'?'|'+'
---- @field range? boolean|'%'|number
---- @field count? boolean|number
+--- @field range? boolean|'%'|integer
+--- @field count? boolean|integer
 --- @field addr? string
 --- @field completion? string
 --- @field force? boolean
@@ -1291,7 +1369,7 @@ local utils = {}
 --- @usage
 --- ```lua
 --- -- Create a command that works with visual selections:
---- utils.ucmd('MyCmd', function(args)
+--- ucmd('MyCmd', function(args)
 ---   -- Print the visually selected text:
 ---   vim.print(args.info:text())
 ---   -- Or get the selection as an array of lines:
@@ -1299,28 +1377,28 @@ local utils = {}
 --- end, { nargs = '*', range = true })
 ---
 --- -- Create a command that processes the current line:
---- utils.ucmd('ProcessLine', function(args)
+--- ucmd('ProcessLine', function(args)
 ---   local line_text = args.info:text()
 ---   -- Process the line...
 --- end, { range = '%' })
 ---
 --- -- Create a command with arguments:
---- utils.ucmd('SearchReplace', function(args)
+--- ucmd('SearchReplace', function(args)
 ---   local pattern, replacement = args.fargs[1], args.fargs[2]
 ---   local text = args.info:text()
 ---   -- Perform search and replace...
 --- end, { nargs = 2, range = true })
 --- ```
-function utils.ucmd(name, cmd, opts)
+local function ucmd(name, cmd, opts)
   opts = opts or {}
-  local cmd2 = cmd
   if type(cmd) == 'function' then
-    cmd2 = function(args)
+    local impl = cmd
+    cmd = function(args)
       args.info = Range.from_cmd_args(args)
-      return cmd(args)
+      return impl(args)
     end
   end
-  vim.api.nvim_create_user_command(name, cmd2, opts or {} --[[@as any]])
+  vim.api.nvim_create_user_command(name, cmd, opts --[[@as any]])
 end
 
 --- Creates command arguments for delegating from one command to another.
@@ -1333,36 +1411,44 @@ end
 --- @usage
 --- ```lua
 --- -- Implement :MyEdit in terms of :edit, preserving all context:
---- utils.ucmd('MyEdit', function(args)
----   local delegated_args = utils.create_delegated_cmd_args(args)
+--- ucmd('MyEdit', function(args)
+---   local delegated_args = create_delegated_cmd_args(args)
 ---   -- Add custom logic here...
 ---   vim.cmd.edit(delegated_args)
 --- end, { nargs = '*', range = true, bang = true })
 ---
 --- -- Implement :MySubstitute that delegates to :substitute:
---- utils.ucmd('MySubstitute', function(args)
+--- ucmd('MySubstitute', function(args)
 ---   -- Pre-process arguments
 ---   local pattern = preprocess_pattern(args.fargs[1])
 ---
----   local delegated_args = utils.create_delegated_cmd_args(args)
+---   local delegated_args = create_delegated_cmd_args(args)
 ---   delegated_args.args = { pattern, args.fargs[2] }
 ---
 ---   vim.cmd.substitute(delegated_args)
 --- end, { nargs = 2, range = true, bang = true })
 --- ```
-function utils.create_delegated_cmd_args(current_args)
+local function create_delegated_cmd_args(current_args)
+  --- @type integer[]?
+  local range
+  if current_args.range == 1 then
+    range = { current_args.line1 }
+  elseif current_args.range == 2 then
+    range = { current_args.line1, current_args.line2 }
+  end
+
+  local count
+  if current_args.count ~= -1 and current_args.range == 0 then count = current_args.count end
+
   --- @type vim.api.keyset.cmd
-  local args = {
-    range = current_args.range == 1 and { current_args.line1 }
-      or current_args.range == 2 and { current_args.line1, current_args.line2 }
-      or nil,
-    count = (current_args.count ~= -1 and current_args.range == 0) and current_args.count or nil,
+  return {
+    range = range,
+    count = count,
     reg = current_args.reg ~= '' and current_args.reg or nil,
     bang = current_args.bang or nil,
     args = #current_args.fargs > 0 and current_args.fargs or nil,
     mods = current_args.smods,
   }
-  return args
 end
 
 --------------------------------------------------------------------------------
@@ -1373,9 +1459,9 @@ M.Pos = Pos
 M.Extmark = Extmark
 M.Range = Range
 M.opkeymap = opkeymap
-M.define_txtobj = txtobj.define
+M.define_txtobj = define_txtobj
 M.repeat_ = repeat_
-M.ucmd = utils.ucmd
-M.create_delegated_cmd_args = utils.create_delegated_cmd_args
+M.ucmd = ucmd
+M.create_delegated_cmd_args = create_delegated_cmd_args
 
 return M

@@ -58,14 +58,11 @@ end
 local function do_surround(range, bounds)
   local left = bounds.left
   local right = bounds.right
-  if range.mode == 'V' then
-    left = vim.trim(left)
-    right = vim.trim(right)
-  end
 
   if range.mode == 'v' then
     range:replace(left .. range:text() .. right)
-  elseif range.mode == 'V' then
+  else
+    left, right = vim.trim(left), vim.trim(right)
     local bufnr = vim.api.nvim_get_current_buf()
     local first_line = Range.from_line(bufnr, range.start.lnum):text()
     local ws = first_line:match '^%s*'
@@ -120,7 +117,7 @@ function _G.MySurroundOpFunc(ty)
 end
 
 function M.setup()
-  require('u.repeat').setup()
+  vim_repeat.setup()
 
   -- Visual
   vim.keymap.set('x', 'S', function()
@@ -135,7 +132,7 @@ function M.setup()
 
   -- Change
   vim.keymap.set('n', 'cs', function()
-    local from_cn = vim.fn.getchar() --[[@as number]]
+    local from_cn = vim.fn.getchar() --[[@as integer]]
     -- Check for non-printable characters:
     if from_cn < 32 or from_cn > 126 then return end
 
@@ -145,20 +142,25 @@ function M.setup()
       local function get_fresh_arange()
         local arange = Range.from_motion('a' .. from_c, { user_defined = true })
         if arange == nil then return end
+        local stop = assert(arange.stop)
         if from_c == 'q' then
           from.left = arange.start:char()
-          from.right = arange.stop:char()
+          from.right = stop:char()
         end
         return arange
       end
 
       local arange = get_fresh_arange()
       if arange == nil then return end
+      local arange_stop = assert(arange.stop)
 
-      local hl_info1 = vim_repeat.is_repeating() and nil
-        or Range.new(arange.start, arange.start, 'v'):highlight('IncSearch', { priority = 999 })
-      local hl_info2 = vim_repeat.is_repeating() and nil
-        or Range.new(arange.stop, arange.stop, 'v'):highlight('IncSearch', { priority = 999 })
+      local hl_info1, hl_info2
+      if not vim_repeat.is_repeating() then
+        hl_info1 = Range.new(arange.start, arange.start, 'v')
+          :highlight('IncSearch', { priority = 999 })
+        hl_info2 = Range.new(arange_stop, arange_stop, 'v')
+          :highlight('IncSearch', { priority = 999 })
+      end
       local hl_clear = function()
         if hl_info1 then hl_info1.clear() end
         if hl_info2 then hl_info2.clear() end
@@ -171,7 +173,7 @@ function M.setup()
       if from_c == 't' then
         -- For tags, we want to replace the inner text, not the tag:
         local irange = Range.from_motion('i' .. from_c, { user_defined = true })
-        if arange == nil or irange == nil then return end
+        if irange == nil then return end
 
         local lrange, rrange = arange:difference(irange)
         if not lrange or not rrange then return end
@@ -202,10 +204,11 @@ function M.setup()
       local arange = Range.from_motion('a' .. txt_obj)
       if arange == nil or irange == nil then return end
       local starting_cursor_pos = arange.start:clone()
+      local arange_stop = assert(arange.stop)
 
       -- Now, replace `arange` with the content of `irange`.  If `arange` was multiple lines,
       -- dedent the contents first, and operate in linewise mode
-      if arange.start.lnum ~= arange.stop.lnum then
+      if arange.start.lnum ~= arange_stop.lnum then
         -- Auto dedent:
         vim.cmd.normal('<i' .. vim.trim(txt_obj))
         -- Dedenting moves the cursor, so we need to set the cursor to a consistent starting spot:
@@ -215,11 +218,12 @@ function M.setup()
         irange = Range.from_motion('i' .. txt_obj)
         if arange == nil or irange == nil then return end -- should never be true
         arange:replace(irange:lines())
+        arange_stop = assert(arange.stop)
         -- `arange:replace(..)` updates its own `stop` position, so we will use
         -- `arange` as the final resulting range that holds the modified text
 
         -- delete last line, if it is empty:
-        local last = Range.from_line(bufnr, arange.stop.lnum)
+        local last = Range.from_line(bufnr, arange_stop.lnum)
         if last:text():match '^%s*$' then last:replace(nil) end
 
         -- delete first line, if it is empty:
@@ -227,7 +231,8 @@ function M.setup()
         if first:text():match '^%s*$' then first:replace(nil) end
       else
         -- trim start:
-        irange = irange:trim_start():trim_stop()
+        local trimmed = assert(irange:trim_start())
+        irange = trimmed:trim_stop() or trimmed
         arange:replace(irange:lines())
       end
 
